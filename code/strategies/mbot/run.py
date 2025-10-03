@@ -47,7 +47,6 @@ def main():
         # --- PHASE 1: AUFRÄUMEN ---
         logger.info("Starte Aufräum-Routine: Lösche alte Stop-Loss-Orders...")
         try:
-            # Annahme: Bitget-Wrapper hat eine Methode fetch_open_trigger_orders
             trigger_orders = bitget.fetch_open_orders(SYMBOL, params={'planType': 'profit_loss'})
             if trigger_orders:
                 for order in trigger_orders:
@@ -60,7 +59,7 @@ def main():
 
         # --- PHASE 2: DATEN LADEN & INDIKATOREN BERECHNEN ---
         data = bitget.fetch_recent_ohlcv(SYMBOL, params['market']['timeframe'], 1000)
-        all_params = {**params['strategy'], **params['risk']}
+        all_params = {**params['strategy'], **params['risk'], **params.get('addons', {})}
         data = calculate_macd_forecast_indicators(data, all_params)
         prev_candle = data.iloc[-2]
         current_candle = data.iloc[-1]
@@ -74,7 +73,6 @@ def main():
             
             sl_side = 'sell' if open_position['side'] == 'long' else 'buy'
             
-            # Take-Profit Logik
             tp_hit = False
             if open_position['side'] == 'long' and not pd.isna(current_candle['upper_forecast']):
                 if current_candle['high'] >= current_candle['upper_forecast']:
@@ -89,7 +87,6 @@ def main():
                 bitget.create_market_order(SYMBOL, sl_side, float(open_position['contracts']), 0, open_position['marginMode'], params={'reduceOnly': True})
                 send_telegram_message(bot_token, chat_id, f"✅ mbot: Position *{SYMBOL}* ({open_position['side']}) durch Take-Profit geschlossen.")
                 time.sleep(2)
-                # Nach dem Schließen nochmals aufräumen
                 remaining_orders = bitget.fetch_open_orders(SYMBOL, params={'planType': 'profit_loss'})
                 for order in remaining_orders:
                     bitget.cancel_order(order['id'], SYMBOL)
@@ -99,7 +96,19 @@ def main():
             
             long_signal = prev_candle['macd'] < prev_candle['signal'] and current_candle['macd'] > current_candle['signal']
             short_signal = prev_candle['macd'] > prev_candle['signal'] and current_candle['macd'] < current_candle['signal']
-            
+
+            impulse_cfg = params.get('addons', {}).get('impulse_macd_filter', {})
+            if impulse_cfg.get('enabled', False):
+                if 'impulse_md' not in current_candle:
+                    logger.warning("Impulse MACD Filter ist aktiviert, aber 'impulse_md' Spalte nicht gefunden. Überspringe Filter.")
+                else:
+                    logger.info("Prüfe Signal mit Impulse MACD Filter...")
+                    original_long, original_short = long_signal, short_signal
+                    long_signal = long_signal and (current_candle['impulse_md'] > 0)
+                    short_signal = short_signal and (current_candle['impulse_md'] < 0)
+                    if (original_long and not long_signal) or (original_short and not short_signal):
+                        logger.info("Signal wurde durch Impulse MACD Filter blockiert.")
+
             side = None
             if long_signal and params['behavior']['use_longs']:
                 side = 'buy'
@@ -114,12 +123,10 @@ def main():
                 amount_in_usdt = usdt_balance * (params['risk']['balance_fraction_pct'] / 100)
                 amount_in_contracts = (amount_in_usdt * leverage) / current_candle['close']
                 
-                # Trade eröffnen
                 bitget.create_market_order(SYMBOL, side, amount_in_contracts, leverage, params['risk']['margin_mode'])
                 send_telegram_message(bot_token, chat_id, f"🔥 mbot: Eröffne *{side.upper()}*-Position für *{SYMBOL}*.")
-                time.sleep(2) # Warte kurz, damit die Position auch sicher eröffnet ist
+                time.sleep(2)
 
-                # Direkt nach Eröffnung den Stop-Loss platzieren
                 new_position = bitget.fetch_open_positions(SYMBOL)
                 if new_position:
                     new_position = new_position[0]
@@ -129,7 +136,8 @@ def main():
                     else:
                         sl_price = prev_candle['swing_high'] * (1 + params['risk']['sl_buffer_pct'] / 100)
                     bitget.place_stop_order(SYMBOL, sl_side, float(new_position['contracts']), sl_price)
-                    logger.info(f"✅ Stop-Loss für die neue {new_position['side']}-Position platziert bei {sl_price}.")
+                    logger.info(f"✅ Stop-Loss für die neue {new_position['side']}-Position platziert bei {sl_price:.4f}.")
+
     except Exception as e:
         logger.error(f"Unerwarteter Fehler im mbot Haupt-Loop: {e}", exc_info=True)
         error_message = f"🚨 KRITISCHER FEHLER im mbot für *{SYMBOL}*!\n\n`{traceback.format_exc()}`"
