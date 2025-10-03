@@ -25,8 +25,6 @@ MINIMUM_TRADES = 20
 # Problem-Definition für die mbot-Strategie
 class MbotOptimizationProblem(Problem):
     def __init__(self, **kwargs):
-        # n_var = 9: Anzahl der zu optimierenden Parameter
-        # [fast, slow, signal, length_ma, length_signal, tp_atr_mult, sl_buffer, swing_lookback, base_leverage]
         super().__init__(n_var=9, n_obj=2, n_constr=0,
                          xl=[5, 15, 5, 20, 5, 1.0, 0.1, 10, 2],
                          xu=[20, 40, 15, 50, 15, 8.0, 1.5, 40, 15], **kwargs)
@@ -35,29 +33,16 @@ class MbotOptimizationProblem(Problem):
         results = []
         for ind in x:
             params = {
-                'macd': {
-                    'fast': int(ind[0]), 'slow': int(ind[1]), 'signal': int(ind[2])
-                },
-                'impulse_macd': {
-                    'length_ma': int(ind[3]), 'length_signal': int(ind[4])
-                },
-                'forecast': {
-                    'tp_atr_multiplier': round(ind[5], 2)
-                },
-                'risk': {
-                    'sl_buffer_pct': round(ind[6], 2),
-                    'swing_lookback': int(ind[7]),
-                    'base_leverage': int(ind[8]),
-                    'balance_fraction_pct': 10 # fest
-                },
+                'macd': { 'fast': int(ind[0]), 'slow': int(ind[1]), 'signal': int(ind[2]) },
+                'impulse_macd': { 'length_ma': int(ind[3]), 'length_signal': int(ind[4]) },
+                'forecast': { 'tp_atr_multiplier': round(ind[5], 2) },
+                'risk': { 'sl_buffer_pct': round(ind[6], 2), 'swing_lookback': int(ind[7]), 'base_leverage': int(ind[8]), 'balance_fraction_pct': 10 },
                 'start_capital': START_CAPITAL
             }
 
-            # NEU: Überprüfung auf gültige MACD-Parameter (fast < slow)
             if params['macd']['fast'] >= params['macd']['slow']:
-                # Ungültige Parameter, sofort mit schlechtem Ergebnis bestrafen
-                results.append([9999, 100.0]) # Entspricht PnL = -9999%, Drawdown = 100%
-                continue # Überspringe die Berechnung und gehe zum nächsten Individuum
+                results.append([9999, 100.0]) 
+                continue
 
             data_with_indicators = calculate_mbot_indicators(HISTORICAL_DATA.copy(), params)
             result = run_mbot_backtest(data_with_indicators.dropna(), params)
@@ -66,9 +51,8 @@ class MbotOptimizationProblem(Problem):
             drawdown = result.get('max_drawdown_pct', 1.0) * 100
             
             if result['trades_count'] < MINIMUM_TRADES:
-                pnl = -1000 # Bestrafung für zu wenige Trades
+                pnl = -1000
             
-            # Ziele: -pnl (da wir maximieren wollen) und drawdown
             results.append([-pnl, drawdown])
             
         out["F"] = np.array(results)
@@ -95,7 +79,12 @@ def main(n_procs, n_gen_default):
             symbol = f"{symbol_short.upper()}/USDT:USDT"
             global HISTORICAL_DATA
             HISTORICAL_DATA = load_data(symbol, timeframe, start_date, end_date)
-            if HISTORICAL_DATA.empty: continue
+            
+            # VERBESSERUNG: Deutliche Warnung und garantierter Abbruch für diese Kombination
+            if HISTORICAL_DATA.empty:
+                print(f"\n\033[91mFEHLER: Für {symbol} ({timeframe}) im Zeitraum {start_date} bis {end_date} wurden keine Daten gefunden.\033[0m")
+                print("\033[93mDies geschieht meist, wenn das Handelspaar nicht existiert oder der Zeitraum ungültig ist. Überspringe...\033[0m")
+                continue # Springe zur nächsten Symbol/Timeframe-Kombination
 
             print(f"\n===== Optimiere {symbol} auf {timeframe} für mbot =====")
             
@@ -107,10 +96,9 @@ def main(n_procs, n_gen_default):
                 with tqdm(total=n_gen, desc="Generationen") as pbar:
                     res = minimize(problem, algorithm, termination, seed=1, callback=lambda alg: pbar.update(1), verbose=False)
 
-                valid_indices = [i for i, f in enumerate(res.F) if f[0] < 9000] # Nur profitable Ergebnisse (und nicht die bestraften)
+                valid_indices = [i for i, f in enumerate(res.F) if f[0] < 9000] 
                 if not valid_indices: continue
                 
-                # Nimm die Top 5 Kandidaten basierend auf PnL
                 for i in sorted(valid_indices, key=lambda i: res.F[i][0])[:5]:
                     ind = res.X[i]
                     param_dict = {
