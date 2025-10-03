@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Bricht das Skript bei Fehlern sofort ab
+set -e
+
 echo "--- Starte die Einrichtung des mbot Trading Bots ---"
 
 # Ermittelt das Verzeichnis des Skripts, um absolute Pfade zu gewährleisten
