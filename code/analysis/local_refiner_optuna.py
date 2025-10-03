@@ -19,6 +19,8 @@ BASE_PARAMS = {}
 
 def objective(trial):
     base = BASE_PARAMS['params']
+    base_impulse = base.get('addons', {}).get('impulse_macd_filter', {})
+
     params = {
         'fast_len': trial.suggest_int('fast_len', max(2, base['fast_len'] - 3), base['fast_len'] + 3),
         'slow_len': trial.suggest_int('slow_len', max(10, base['slow_len'] - 5), base['slow_len'] + 5),
@@ -27,6 +29,12 @@ def objective(trial):
         'sl_buffer_pct': trial.suggest_float('sl_buffer_pct', base['sl_buffer_pct'] * 0.7, base['sl_buffer_pct'] * 1.3),
         'upper_percentile': trial.suggest_int('upper_percentile', base['upper_percentile'] - 5, base['upper_percentile'] + 5),
         'lower_percentile': trial.suggest_int('lower_percentile', base['lower_percentile'] - 5, base['lower_percentile'] + 5),
+        'addons': {
+            'impulse_macd_filter': {
+                'enabled': True,
+                'lengthMA': trial.suggest_int('lengthMA', max(10, base_impulse.get('lengthMA', 34) - 10), base_impulse.get('lengthMA', 34) + 10)
+            }
+        },
         **base, 'start_capital': START_CAPITAL, 'leverage': 5.0,
         'start_date_str': BASE_PARAMS['start_date']
     }
@@ -81,11 +89,17 @@ def main(n_jobs, n_trials):
         data_final = calculate_macd_forecast_indicators(HISTORICAL_DATA.copy(), final_params)
         final_result = run_backtest(data_final.dropna(), final_params)
 
+        # Config für mbot erstellen
+        strategy_params = {k: v for k, v in final_params.items() if k in ['fast_len', 'slow_len', 'signal_len', 'trend_determination', 'max_memory', 'forecast_len', 'upper_percentile', 'mid_percentile', 'lower_percentile', 'swing_lookback']}
+        risk_params = {k: v for k, v in final_params.items() if k in ['margin_mode', 'balance_fraction_pct', 'sl_buffer_pct', 'leverage']}
+        addons_params = final_params.get('addons', {})
+        
         config_output = {
             "market": {"symbol": best_overall_info['symbol'], "timeframe": best_overall_info['timeframe']},
-            "strategy": {k: v for k, v in final_params.items() if k in ['fast_len', 'slow_len', 'signal_len', 'trend_determination', 'max_memory', 'forecast_len', 'upper_percentile', 'mid_percentile', 'lower_percentile', 'swing_lookback']},
-            "risk": {k: v for k, v in final_params.items() if k in ['margin_mode', 'balance_fraction_pct', 'sl_buffer_pct', 'leverage']},
-            "behavior": {"use_longs": True, "use_shorts": True}
+            "strategy": strategy_params,
+            "risk": risk_params,
+            "behavior": {"use_longs": True, "use_shorts": True},
+            "addons": addons_params
         }
 
         print(f"  COIN: {best_overall_info['symbol']} | TIMEFRAME: {best_overall_info['timeframe']}")
