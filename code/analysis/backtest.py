@@ -19,14 +19,12 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
     symbol_filename = symbol.replace('/', '-').replace(':', '-')
     cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
 
-    required_start = pd.to_datetime(start_date_str, utc=True)
-    required_end = pd.to_datetime(end_date_str, utc=True)
+    required_start, required_end = pd.to_datetime(start_date_str, utc=True), pd.to_datetime(end_date_str, utc=True)
 
     if os.path.exists(cache_file):
         print(f"Lade Daten für {symbol} aus dem Cache...")
         data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
         data.index = pd.to_datetime(data.index, utc=True)
-        
         if not data.empty and data.index.min() <= required_start and data.index.max() >= required_end:
             print("Cache ist ausreichend aktuell. Verwende Cache-Daten.")
             return data.loc[start_date_str:end_date_str]
@@ -36,8 +34,7 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
     try:
         print(f"\033[94mVersuche, historische Daten für {symbol} ({timeframe}) von der Börse herunterzuladen...\033[0m")
         project_root = os.path.join(os.path.dirname(__file__), '..', '..')
-        key_path = os.path.abspath(os.path.join(project_root, 'secret.json'))
-        with open(key_path, "r") as f: secrets = json.load(f)
+        with open(os.path.abspath(os.path.join(project_root, 'secret.json')), "r") as f: secrets = json.load(f)
         api_setup = secrets.get('mbot', secrets.get('bitget_example'))
         bitget = BitgetFutures(api_setup)
         
@@ -54,41 +51,31 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
             print(f"\033[91mFEHLER: Es konnten keine Daten für {symbol} heruntergeladen werden.\033[0m")
             pd.DataFrame().to_csv(cache_file)
             return pd.DataFrame()
-            
     except Exception as e:
         print(f"\033[91mEin kritischer Fehler ist beim Daten-Download aufgetreten: {e}\033[0m")
         return pd.DataFrame()
 
 def run_mbot_backtest(data, params):
     risk = params.get('risk', {})
-    forecast = params.get('forecast', {})
-    base_leverage = risk.get('base_leverage', 5)
-    balance_fraction = risk.get('balance_fraction_pct', 100) / 100
+    base_leverage, balance_fraction = risk.get('base_leverage', 5), risk.get('balance_fraction_pct', 100) / 100
     sl_buffer_pct = risk.get('sl_buffer_pct', 0.5) / 100
-    tp_atr_multiplier = forecast.get('tp_atr_multiplier', 4.0)
-    start_capital = params.get('start_capital', 1000)
-    fee_pct = 0.05 / 100
-    current_capital = start_capital
-    trades_count, wins_count = 0, 0
-    trade_log = []
-    peak_capital = start_capital
-    max_drawdown_pct = 0.0
-    position = None
+    start_capital, fee_pct = params.get('start_capital', 1000), 0.05 / 100
+    current_capital, trades_count, wins_count = start_capital, 0, 0
+    trade_log, peak_capital, max_drawdown_pct, position = [], start_capital, 0.0, None
 
     for i in range(1, len(data)):
         prev_candle, current_candle = data.iloc[i-1], data.iloc[i]
-
         if position:
             exit_price, reason = None, None
+            tp_price = position['entry_price'] + current_candle['tp_atr_distance'] if position['side'] == 'long' else position['entry_price'] - current_candle['tp_atr_distance']
             if position['side'] == 'long' and current_candle['low'] <= position['sl_price']: exit_price, reason = position['sl_price'], "Stop-Loss"
             elif position['side'] == 'short' and current_candle['high'] >= position['sl_price']: exit_price, reason = position['sl_price'], "Stop-Loss"
-            elif position['side'] == 'long' and current_candle['high'] >= position['tp_price']: exit_price, reason = position['tp_price'], "Take-Profit"
-            elif position['side'] == 'short' and current_candle['low'] <= position['tp_price']: exit_price, reason = position['tp_price'], "Take-Profit"
+            elif position['side'] == 'long' and current_candle['high'] >= tp_price: exit_price, reason = tp_price, "Take-Profit"
+            elif position['side'] == 'short' and current_candle['low'] <= tp_price: exit_price, reason = tp_price, "Take-Profit"
 
             if exit_price is not None:
                 pnl = (exit_price - position['entry_price']) * position['amount'] if position['side'] == 'long' else (position['entry_price'] - exit_price) * position['amount']
-                notional_value = position['entry_price'] * position['amount'] + exit_price * position['amount']
-                pnl -= notional_value * fee_pct
+                pnl -= (position['entry_price'] * position['amount'] + exit_price * position['amount']) * fee_pct
                 current_capital += pnl
                 trades_count += 1
                 if pnl > 0: wins_count += 1
@@ -101,19 +88,14 @@ def run_mbot_backtest(data, params):
                 if current_capital == 0: break
         
         if not position:
-            long_entry = (current_candle['impulse_histo'] > 0 and prev_candle['impulse_histo'] <= 0 and current_candle['impulse_macd'] > 0 and current_candle['macd_uptrend'] == 1)
-            short_entry = (current_candle['impulse_histo'] < 0 and prev_candle['impulse_histo'] >= 0 and current_candle['impulse_macd'] < 0 and current_candle['macd_uptrend'] == 0)
+            long_entry, short_entry = current_candle['impulse_histo'] > 0 and prev_candle['impulse_histo'] <= 0, current_candle['impulse_histo'] < 0 and prev_candle['impulse_histo'] >= 0
             trade_side = 'long' if long_entry else 'short' if short_entry else None
 
             if trade_side:
-                entry_price = current_candle['close']
-                amount = (current_capital * balance_fraction * base_leverage) / entry_price
-                if trade_side == 'long':
-                    sl_price, tp_price = prev_candle['swing_low'] * (1 - sl_buffer_pct), entry_price + current_candle['tp_atr_distance']
-                else:
-                    sl_price, tp_price = prev_candle['swing_high'] * (1 + sl_buffer_pct), entry_price - current_candle['tp_atr_distance']
-                position = {'side': trade_side, 'entry_price': entry_price, 'amount': amount, 'sl_price': sl_price, 'tp_price': tp_price, 'leverage': base_leverage}
+                entry_price, amount = current_candle['close'], (current_capital * balance_fraction * base_leverage) / current_candle['close']
+                sl_price = prev_candle['swing_low'] * (1 - sl_buffer_pct) if trade_side == 'long' else prev_candle['swing_high'] * (1 + sl_buffer_pct)
+                position = {'side': trade_side, 'entry_price': entry_price, 'amount': amount, 'sl_price': sl_price, 'leverage': base_leverage}
     
     win_rate = (wins_count / trades_count * 100) if trades_count > 0 else 0
     final_pnl_pct = ((current_capital / start_capital) - 1) * 100
-    return {"total_pnl_pct": final_pnl_pct, "trades_count": trades_count, "win_rate": win_rate, "params": params, "end_capital": current_capital, "max_drawdown_pct": max_drawdown_pct, "trade_log": trade_log}
+    return {"total_pnl_pct": final_pnl_pct, "trades_count": trades_count, "win_rate": win_rate, "end_capital": current_capital, "max_drawdown_pct": max_drawdown_pct, "trade_log": trade_log}
