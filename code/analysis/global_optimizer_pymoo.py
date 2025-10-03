@@ -28,10 +28,13 @@ class TqdmCallback(Callback):
 
 class OptimizationProblem(Problem):
     def __init__(self, **kwargs):
+        # KORREKTUR: Die schließende Klammer war hier fehlerhaft platziert.
         super().__init__(n_var=8, n_obj=2, n_constr=0,
                          # fast, slow, signal, swing, sl_buf, up_%, low_%, impulse_len
                          xl=[5,  20, 5,  10, 0.1, 75, 5,  20],
-                         xu=[25, 60, 20, 50, 2.0, 95, 25, 50], **kwargs)
+                         xu=[25, 60, 20, 50, 2.0, 95, 25, 50],
+                         **kwargs)
+
     def _evaluate(self, x, out, *args, **kwargs):
         results = []
         for ind in x:
@@ -122,13 +125,9 @@ def main(n_procs, n_gen_default):
     print(f"\n--- Globale Suche beendet. Top-Kandidaten in '{output_file}' gespeichert. ---")
 
 if __name__ == "__main__":
-    # KORRIGIERTER Block ohne argparse
-    # sys.argv[0] ist der Skriptname
-    # sys.argv[1] ist das erste Argument (Anzahl der Kerne)
     if len(sys.argv) > 1:
         n_procs = int(sys.argv[1])
     else:
-        n_procs = 1 # Fallback, falls kein Argument übergeben wird
+        n_procs = 1
     
-    # Die Standardanzahl der Generationen ist hier fest codiert
     main(n_procs=n_procs, n_gen_default=50)
