@@ -1,32 +1,12 @@
-# Diese Liste ist für eine moderne Python-Umgebung (>=3.10) getestet
-# und löst die vorherigen Installationsfehler.
-aiohttp==3.9.5
-aiodns==3.2.0
-aiosignal==1.3.1
-attrs==23.2.0
-certifi==2024.7.4
-cffi==1.16.0
-charset-normalizer==3.3.2
-colorlog==6.8.2
-cryptography==42.0.8
-idna==3.7
-numpy>=1.26.0
-optuna==3.6.1
-pandas>=2.1.0
-pandas-ta==0.3.14b0
-pycparser==2.22
-pydantic==2.8.2
-pymoo==0.6.1.1
-python-dateutil==2.9.0.post0
-pytz==2024.1
-pycares==4.4.0
-requests==2.32.3
-seaborn==0.13.2
-six==1.16.0
-SQLAlchemy==2.0.31
-tqdm==4.66.4
-typing_extensions==4.12.2
-tzdata==2024.1
-urllib3==2.2.2
-yarl==1.9.4
+# Flexible requirements list for robust installation across different systems.
+# This allows pip to resolve the correct dependencies for the target environment.
 ccxt==4.3.5
+pandas
+pandas-ta
+requests
+numpy
+pymoo
+optuna
+pydantic
+seaborn
+tqdm
