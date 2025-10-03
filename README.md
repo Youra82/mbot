@@ -64,7 +64,7 @@ Ein Jupyter Notebook (run_pnl.ipynb) nutzt dieses Modul, um die tatsächliche Ha
 
 Bash
 
->git clone https://github.com/Youra82/stbot.git
+>git clone https://github.com/Youra82/mbot.git
 
 Installations-Skript ausführen
 Dieses Skript aktualisiert den Server, installiert Python-Abhängigkeiten und richtet die virtuelle Umgebung ein.
@@ -112,7 +112,7 @@ Füge die folgende Zeile am Ende der Datei ein:
 
 Code-Snippet
 
->*/5 * * * * flock -n /home/ubuntu/stbot/bot.lock bash /home/ubuntu/stbot/code/run_envelope.sh >> /home/ubuntu/stbot/logs/cron.log 2>&1
+>*/5 * * * * flock -n /home/ubuntu/mbot/bot.lock bash /home/ubuntu/mbot/code/run_envelope.sh >> /home/ubuntu/mbot/logs/cron.log 2>&1
 
 Speichere und schließe die Datei. Der Bot ist nun live.
 
