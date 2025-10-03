@@ -29,10 +29,10 @@ class TqdmCallback(Callback):
 
 class OptimizationProblem(Problem):
     def __init__(self, **kwargs):
-        super().__init__(n_var=7, n_obj=2, n_constr=0,
-                         # fast, slow, signal, swing, sl_buf, up_%, low_%
-                         xl=[5,  20, 5,  10, 0.1, 75, 5],
-                         xu=[25, 60, 20, 50, 2.0, 95, 25], **kwargs)
+        super().__init__(n_var=8, n_obj=2, n_constr=0,
+                         # fast, slow, signal, swing, sl_buf, up_%, low_%, impulse_len
+                         xl=[5,  20, 5,  10, 0.1, 75, 5,  20],
+                         xu=[25, 60, 20, 50, 2.0, 95, 25, 50], **kwargs)
     def _evaluate(self, x, out, *args, **kwargs):
         results = []
         for ind in x:
@@ -40,6 +40,7 @@ class OptimizationProblem(Problem):
                 'fast_len': int(ind[0]), 'slow_len': int(ind[1]), 'signal_len': int(ind[2]),
                 'swing_lookback': int(ind[3]), 'sl_buffer_pct': round(ind[4], 2),
                 'upper_percentile': int(ind[5]), 'lower_percentile': int(ind[6]),
+                'addons': { 'impulse_macd_filter': { 'enabled': True, 'lengthMA': int(ind[7]) }},
                 'max_memory': 50, 'forecast_len': 100, 'start_capital': START_CAPITAL, 'leverage': 5.0,
                 'start_date_str': self.start_date_str
             }
@@ -80,7 +81,7 @@ def main(n_procs, n_gen_default):
             
             with Pool(n_procs) as pool:
                 problem = OptimizationProblem(parallelization=StarmapParallelization(pool.starmap))
-                problem.start_date_str = start_date # Hinzufügen des Startdatums zum Problem-Objekt
+                problem.start_date_str = start_date
 
                 algorithm = NSGA2(pop_size=100)
                 termination = get_termination("n_gen", n_gen)
@@ -100,7 +101,8 @@ def main(n_procs, n_gen_default):
                         'params': {
                             'fast_len': int(params_raw[0]), 'slow_len': int(params_raw[1]), 'signal_len': int(params_raw[2]),
                             'swing_lookback': int(params_raw[3]), 'sl_buffer_pct': round(params_raw[4], 2),
-                            'upper_percentile': int(params_raw[5]), 'lower_percentile': int(params_raw[6])
+                            'upper_percentile': int(params_raw[5]), 'lower_percentile': int(params_raw[6]),
+                            'addons': { 'impulse_macd_filter': { 'enabled': True, 'lengthMA': int(params_raw[7]) }}
                         }
                     }
                     all_champions.append(param_dict)
