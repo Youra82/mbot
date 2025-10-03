@@ -6,21 +6,21 @@ set -e
 SECRET_FILE="secret.json"
 BACKUP_FILE="secret.json.bak"
 
-echo "--- Sicheres Update für mbot wird ausgeführt (v3 - vollautomatisch) ---"
+echo "--- Sicheres Update wird ausgeführt (v3 - vollautomatisch) ---"
 
-# Schritt 1: Backup der sensiblen Schlüsseldatei erstellen
+# Schritt 1: Backup der Keys erstellen
 echo "1. Erstelle ein Backup von '$SECRET_FILE' nach '$BACKUP_FILE'..."
 cp "$SECRET_FILE" "$BACKUP_FILE"
 
-# Schritt 2: Lokale Änderungen (insbesondere die secret.json) sicher beiseite legen
+# Schritt 2: Lokale Änderungen sicher beiseite legen
 echo "2. Lege alle lokalen Änderungen mit 'git stash' sicher beiseite..."
 git stash push --include-untracked
 
-# Schritt 3: Neuesten Stand des Bot-Codes von GitHub holen
+# Schritt 3: Neuesten Stand von GitHub holen
 echo "3. Hole die neuesten Updates von GitHub (vollautomatisch)..."
 git pull origin main --no-rebase --no-edit
 
-# Schritt 4: Lokale Änderungen aus dem Zwischenspeicher zurückholen
+# Schritt 4: Lokale Änderungen zurückholen
 echo "4. Hole die lokalen Änderungen (deine Keys) aus dem Zwischenspeicher zurück..."
 git stash pop
 
@@ -28,4 +28,4 @@ git stash pop
 echo "5. Stelle den Inhalt von '$SECRET_FILE' aus dem Backup wieder her..."
 cp "$BACKUP_FILE" "$SECRET_FILE"
 
-echo "✅ mbot Update erfolgreich und vollautomatisch abgeschlossen."
+echo "✅ Update erfolgreich und vollautomatisch abgeschlossen."
