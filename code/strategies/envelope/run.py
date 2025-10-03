@@ -29,15 +29,14 @@ SYMBOL = params['market']['symbol']
 TIMEFRAME = params['market']['timeframe']
 
 def main():
-    logger.info(f">>> Starte mbot Ausführung für {SYMBOL} (v1.0 - Impulse & Forecast)")
+    logger.info(f">>> Starte mbot Ausführung für {SYMBOL} (v2.0 - Simplified Impulse)")
     
     try:
         key_path = os.path.abspath(os.path.join(PROJECT_ROOT, 'secret.json'))
         with open(key_path, "r") as f: secrets = json.load(f)
         api_setup = secrets['mbot']
         telegram_config = secrets.get('telegram', {})
-        bot_token = telegram_config.get('bot_token')
-        chat_id = telegram_config.get('chat_id')
+        bot_token, chat_id = telegram_config.get('bot_token'), telegram_config.get('chat_id')
     except Exception as e:
         logger.critical(f"Fehler beim Laden der API-Schlüssel: {e}"); sys.exit(1)
 
@@ -53,58 +52,34 @@ def main():
 
         data = bitget.fetch_recent_ohlcv(SYMBOL, TIMEFRAME, 500)
         data = calculate_mbot_indicators(data, params)
-        prev_candle = data.iloc[-2]
-        current_candle = data.iloc[-1]
+        prev_candle, current_candle = data.iloc[-2], data.iloc[-1]
 
         open_position = bitget.fetch_open_positions(SYMBOL)
         open_position = open_position[0] if open_position else None
 
         if open_position:
-            side = open_position['side']
-            entry_price = float(open_position['entryPrice'])
-            contracts = float(open_position['contracts'])
-            
-            logger.info(f"Position ({side}) gefunden. Aktualisiere Stop-Loss und prüfe Take-Profit.")
+            side, entry_price, contracts = open_position['side'], float(open_position['entryPrice']), float(open_position['contracts'])
+            logger.info(f"Position ({side}) gefunden. Aktualisiere SL und prüfe TP.")
             
             sl_side = 'sell' if side == 'long' else 'buy'
-            if side == 'long':
-                sl_price = prev_candle['swing_low'] * (1 - params['risk']['sl_buffer_pct'] / 100)
-            else:
-                sl_price = prev_candle['swing_high'] * (1 + params['risk']['sl_buffer_pct'] / 100)
-            
+            sl_price = prev_candle['swing_low'] * (1 - params['risk']['sl_buffer_pct'] / 100) if side == 'long' else prev_candle['swing_high'] * (1 + params['risk']['sl_buffer_pct'] / 100)
             bitget.place_stop_order(SYMBOL, sl_side, contracts, sl_price)
             logger.info(f"✅ Stop-Loss für {side}-Position auf {sl_price:.4f} gesetzt.")
 
-            tp_atr_dist = current_candle['tp_atr_distance']
-            if side == 'long' and current_candle['high'] >= entry_price + tp_atr_dist:
-                logger.info(f"🟢 Take-Profit-Signal für LONG erkannt. Schließe Position.")
-                bitget.create_market_order(SYMBOL, 'sell', contracts, 0, 'isolated', params={'reduceOnly': True})
-                send_telegram_message(bot_token, chat_id, f"✅ Position *{SYMBOL}* ({side}) durch Take-Profit geschlossen.")
-            elif side == 'short' and current_candle['low'] <= entry_price - tp_atr_dist:
-                logger.info(f"🟢 Take-Profit-Signal für SHORT erkannt. Schließe Position.")
-                bitget.create_market_order(SYMBOL, 'buy', contracts, 0, 'isolated', params={'reduceOnly': True})
+            tp_price = entry_price + current_candle['tp_atr_distance'] if side == 'long' else entry_price - current_candle['tp_atr_distance']
+            if (side == 'long' and current_candle['high'] >= tp_price) or (side == 'short' and current_candle['low'] <= tp_price):
+                logger.info(f"🟢 Take-Profit-Signal für {side.upper()} erkannt. Schließe Position.")
+                bitget.create_market_order(SYMBOL, sl_side, contracts, 0, 'isolated', params={'reduceOnly': True})
                 send_telegram_message(bot_token, chat_id, f"✅ Position *{SYMBOL}* ({side}) durch Take-Profit geschlossen.")
             else:
                 logger.info("Kein Take-Profit-Signal.")
         else:
             logger.info("Keine Position offen. Suche nach neuem Einstieg...")
             
-            long_entry_signal = (
-                current_candle['impulse_histo'] > 0 and prev_candle['impulse_histo'] < 0 and
-                current_candle['impulse_macd'] > 0 and
-                current_candle['macd_uptrend'] == 1
-            )
-            short_entry_signal = (
-                current_candle['impulse_histo'] < 0 and prev_candle['impulse_histo'] > 0 and
-                current_candle['impulse_macd'] < 0 and
-                current_candle['macd_uptrend'] == 0
-            )
-
-            trade_side = None
-            if long_entry_signal and params['behavior']['use_longs']:
-                trade_side = 'long'
-            elif short_entry_signal and params['behavior']['use_shorts']:
-                trade_side = 'short'
+            # VEREINFACHTE EINSTIEGSLOGIK
+            long_entry = current_candle['impulse_histo'] > 0 and prev_candle['impulse_histo'] <= 0
+            short_entry = current_candle['impulse_histo'] < 0 and prev_candle['impulse_histo'] >= 0
+            trade_side = 'long' if long_entry and params['behavior']['use_longs'] else 'short' if short_entry and params['behavior']['use_shorts'] else None
 
             if trade_side:
                 logger.info(f"🚀 {trade_side.upper()}-Einstiegssignal erkannt! Eröffne Trade...")
