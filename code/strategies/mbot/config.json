@@ -24,5 +24,11 @@
     "behavior": {
         "use_longs": true,
         "use_shorts": true
+    },
+    "addons": {
+        "impulse_macd_filter": {
+            "enabled": true,
+            "lengthMA": 34
+        }
     }
 }
