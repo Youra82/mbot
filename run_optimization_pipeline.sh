@@ -5,7 +5,6 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 VENV_PATH="$SCRIPT_DIR/code/.venv/bin/activate"
 GLOBAL_OPTIMIZER="$SCRIPT_DIR/code/analysis/global_optimizer_pymoo.py"
 LOCAL_REFINER="$SCRIPT_DIR/code/analysis/local_refiner_optuna.py"
-BACKTESTER="$SCRIPT_DIR/code/analysis/run_backtest.py" # NEU
 CANDIDATES_FILE="$SCRIPT_DIR/code/analysis/optimization_candidates.json"
 CACHE_DIR="$SCRIPT_DIR/code/analysis/historical_data"
 
@@ -25,11 +24,11 @@ fi
 
 # --- Hauptmenü ---
 echo -e "${BLUE}======================================================="
-echo "       Analyse- & Optimierungs-Werkzeuge"
+echo "        Analyse- & Optimierungs-Werkzeuge"
 echo -e "=======================================================${NC}"
 echo "Wähle einen Modus:"
 echo "  1) Komplette Optimierungs-Pipeline starten (Pymoo & Optuna)"
-echo "  2) Einzel-Backtest der aktuellen Live-Konfiguration starten"
+echo "  2) Einzel-Backtest einer Live-Konfiguration starten"
 echo "  3) Daten-Cache löschen"
 read -p "Auswahl (1-3): " mode
 
@@ -53,7 +52,18 @@ case "$mode" in
         ;;
     2)
         echo -e "\n${GREEN}>>> Modus: Einzel-Backtest gewählt.${NC}"
-        python3 "$BACKTESTER"
+        echo "Welchen Bot möchtest du backtesten?"
+        echo "  1) stbot (StochRSI Envelope)"
+        echo "  2) mbot (MACD Forecast)"
+        read -p "Auswahl (1-2): " backtest_choice
+
+        if [ "$backtest_choice" == "1" ]; then
+            python3 "$SCRIPT_DIR/code/analysis/run_backtest.py"
+        elif [ "$backtest_choice" == "2" ]; then
+            python3 "$SCRIPT_DIR/code/analysis/run_mbot_backtest.py"
+        else
+            echo -e "${RED}Ungültige Auswahl.${NC}"
+        fi
         ;;
     3)
         echo -e "\n${GREEN}>>> Modus: Cache löschen gewählt.${NC}"
