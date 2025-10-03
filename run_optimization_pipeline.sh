@@ -13,6 +13,7 @@ CACHE_DIR="$SCRIPT_DIR/code/analysis/historical_data"
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # --- Virtuelle Umgebung aktivieren ---
@@ -48,7 +49,13 @@ case "$mode" in
             exit 1
         fi
 
-        echo -e "\n${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
+        # NEU: Zeige die gefundenen Kandidaten an
+        echo -e "\n${YELLOW}--- VON STUFE 1 GEFUNDENE TOP 5 KANDIDATEN ---${NC}"
+        cat "$CANDIDATES_FILE"
+        echo -e "${YELLOW}---------------------------------------------${NC}\n"
+
+
+        echo -e "${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
         python3 "$LOCAL_REFINER" --jobs "$N_CORES"
         ;;
     2)
