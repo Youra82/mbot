@@ -1,48 +1,43 @@
 # code/utilities/strategy_logic.py
 
 import pandas as pd
-import pandas_ta as ta
-import numpy as np
+import ta
 
-# Hilfsfunktionen bleiben gleich
-def _calc_smma(series: pd.Series, length: int) -> pd.Series:
-    return series.ewm(alpha=1/length, adjust=False).mean()
-
-def _calc_zlema(series: pd.Series, length: int) -> pd.Series:
-    ema1 = series.ewm(span=length, adjust=False).mean()
-    ema2 = ema1.ewm(span=length, adjust=False).mean()
-    d = ema1 - ema2
-    return ema1 + d
-
-def calculate_mbot_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
+def calculate_macd_indicators(data, params):
     """
-    Berechnet alle für den mbot notwendigen Indikatoren.
-    VEREINFACHT: Verwendet nur noch den Impulse MACD.
+    Berechnet MACD, Swing Points, ATR, EMA-Trendfilter.
     """
-    impulse_params = params.get('impulse_macd', {})
-    risk_params = params.get('risk', {})
-    
-    # --- 1. Impulse MACD Berechnungen ---
-    length_ma = impulse_params.get('length_ma', 34)
-    length_signal = impulse_params.get('length_signal', 9)
-    
-    src = (data['high'] + data['low'] + data['close']) / 3
-    hi = _calc_smma(data['high'], length_ma)
-    lo = _calc_smma(data['low'], length_ma)
-    mi = _calc_zlema(src, length_ma)
-    
-    md = np.where(mi > hi, mi - hi, np.where(mi < lo, mi - lo, 0))
-    data['impulse_macd'] = md
-    data['impulse_signal'] = pd.Series(md).rolling(window=length_signal).mean()
-    data['impulse_histo'] = data['impulse_macd'] - data['impulse_signal']
+    # MACD Parameter
+    fast_period = params.get('macd_fast', 12)
+    slow_period = params.get('macd_slow', 26)
+    signal_period = params.get('macd_signal', 9)
 
-    # --- 2. Zusätzliche Indikatoren für SL & TP ---
-    swing_lookback = risk_params.get('swing_lookback', 30)
-    data['swing_low'] = data['low'].rolling(window=swing_lookback).min()
-    data['swing_high'] = data['high'].rolling(window=swing_lookback).max()
-    
-    atr_period = risk_params.get('atr_period', 14)
-    tp_atr_multiplier = risk_params.get('tp_atr_multiplier', 3.0)
-    data['tp_atr_distance'] = ta.atr(data['high'], data['low'], data['close'], length=atr_period) * tp_atr_multiplier
+    # Andere Parameter
+    swing_lookback = params.get('swing_lookback', 10)
+    atr_period = params.get('atr_period', 14)
+    trend_filter_cfg = params.get('trend_filter', {})
+    trend_filter_period = trend_filter_cfg.get('period', 200)
 
-    return data
+    indicators = pd.DataFrame(index=data.index)
+
+    # MACD-Berechnung
+    macd_indicator = ta.trend.MACD(
+        close=data['close'],
+        window_slow=slow_period,
+        window_fast=fast_period,
+        window_sign=signal_period
+    )
+    indicators['macd'] = macd_indicator.macd()
+    indicators['macd_signal'] = macd_indicator.macd_signal()
+    indicators['macd_diff'] = macd_indicator.macd_diff() # Histogramm
+
+    # Beibehaltung der nützlichen Zusatzindikatoren
+    indicators['swing_low'] = data['low'].rolling(window=swing_lookback).min()
+    indicators['swing_high'] = data['high'].rolling(window=swing_lookback).max()
+    
+    atr = ta.volatility.AverageTrueRange(data['high'], data['low'], data['close'], window=atr_period).average_true_range()
+    indicators['atr_pct'] = (atr / data['close']) * 100
+
+    indicators['ema_trend'] = ta.trend.ema_indicator(data['close'], window=trend_filter_period)
+
+    return data.join(indicators)
