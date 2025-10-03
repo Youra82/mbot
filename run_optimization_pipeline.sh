@@ -39,8 +39,9 @@ case "$mode" in
         read -p "Mit wie vielen CPU-Kernen soll optimiert werden? (Standard: 1): " N_CORES
         N_CORES=${N_CORES:-1}
 
-        echo -e "${GREEN}>>> STARTE STUFE 1: Globale Suche mit Pymoo...${NC}"
-        python3 "$GLOBAL_OPTIMIZER" --jobs "$N_CORES"
+        echo -e "\n${GREEN}>>> STARTE STUFE 1: Globale Suche mit Pymoo...${NC}"
+        # KORRIGIERTER AUFRUF OHNE --jobs
+        python3 "$GLOBAL_OPTIMIZER" "$N_CORES"
 
         if [ ! -f "$CANDIDATES_FILE" ]; then
             echo -e "${RED}Fehler: Stufe 1 hat keine Ergebnisse geliefert. Breche ab.${NC}"
@@ -49,7 +50,8 @@ case "$mode" in
         fi
 
         echo -e "\n${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
-        python3 "$LOCAL_REFINER" --jobs "$N_CORES"
+        # KORRIGIERTER AUFRUF OHNE --jobs
+        python3 "$LOCAL_REFINER" "$N_CORES"
         ;;
     2)
         echo -e "\n${GREEN}>>> Modus: Einzel-Backtest gewählt.${NC}"
