@@ -1,0 +1,40 @@
+{
+    "market": {
+        "symbol": "PEPE/USDT:USDT",
+        "timeframe": "15m"
+    },
+    "strategy": {
+        "stoch_rsi_period": 10,
+        "stoch_k": 12,
+        "stoch_d": 4,
+        "swing_lookback": 30,
+        "oversold_level": 20,
+        "overbought_level": 80,
+        "atr_period": 14,
+        "trend_filter": {
+            "enabled": true,
+            "period": 200
+        },
+        "sideways_filter": {
+            "enabled": true,
+            "lookback": 50,
+            "max_crosses": 12
+        }
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "balance_fraction_pct":10,
+        "sl_buffer_pct": 0.29,
+        "base_leverage": 3,
+        "max_leverage": 10,
+        "target_atr_pct": 4.28
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "development": {
+        "_comment": "Werte: 'none' (Live-Betrieb), 'LONG' (erzwingt Long), 'SHORT' (erzwingt Short)",
+        "force_trade_side": "none"
+    }
+}
