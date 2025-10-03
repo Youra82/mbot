@@ -15,8 +15,10 @@ echo "Projektverzeichnis ist: $SCRIPT_DIR"
 # Server-Pakete aktualisieren und Abhängigkeiten installieren
 echo "Aktualisiere den Server..."
 sudo apt-get update -y > /dev/null
-echo "Installiere pip und venv..."
-sudo apt-get install python3-pip python3-venv -y > /dev/null
+
+# NEU: jq wird jetzt automatisch mitinstalliert
+echo "Installiere System-Abhängigkeiten (pip, venv, jq)..."
+sudo apt-get install python3-pip python3-venv jq -y > /dev/null
 
 # Virtuelle Python-Umgebung einrichten
 echo "Installiere virtuelle Umgebung und Pakete..."
