@@ -3,7 +3,18 @@ import ta
 import numpy as np
 from datetime import timedelta
 
+# Hilfsfunktionen für den Impulse MACD
+def calc_smma(src, length):
+    return src.ewm(alpha=1.0/length, adjust=False).mean()
+
+def calc_zlema(src, length):
+    ema1 = src.ewm(span=length, adjust=False).mean()
+    ema2 = ema1.ewm(span=length, adjust=False).mean()
+    d = ema1 - ema2
+    return ema1 + d
+
 def calculate_macd_forecast_indicators(data, params):
+    # Bestehende Parameter
     fast = params.get('fast_len', 12)
     slow = params.get('slow_len', 26)
     sigLen = params.get('signal_len', 9)
@@ -11,8 +22,10 @@ def calculate_macd_forecast_indicators(data, params):
     max_memory = params.get('max_memory', 50)
     swing_lookback = params.get('swing_lookback', 20)
 
-    # Indikatoren auf dem gesamten Datensatz berechnen
+    # DataFrame für alle Indikatoren initialisieren
     indicators = pd.DataFrame(index=data.index)
+
+    # 1. Standard-MACD Berechnungen (unverändert)
     macd_indicator = ta.trend.MACD(close=data['close'], window_slow=slow, window_fast=fast, window_sign=sigLen)
     indicators['macd'] = macd_indicator.macd()
     indicators['signal'] = macd_indicator.macd_signal()
@@ -24,12 +37,28 @@ def calculate_macd_forecast_indicators(data, params):
     
     indicators['downtrend'] = ~indicators['uptrend']
     
+    # 2. HINZUGEFÜGT: Impulse MACD Filter Berechnungen
+    impulse_cfg = params.get('impulse_macd_filter', {})
+    if impulse_cfg.get('enabled', False):
+        lengthMA = impulse_cfg.get('lengthMA', 34)
+        src = (data['high'] + data['low'] + data['close']) / 3
+        
+        hi = calc_smma(data['high'], lengthMA)
+        lo = calc_smma(data['low'], lengthMA)
+        mi = calc_zlema(src, lengthMA)
+        
+        # md ist der Kernwert des Impulse MACD
+        md = pd.Series(0.0, index=data.index)
+        md[mi > hi] = mi - hi
+        md[mi < lo] = mi - lo
+        indicators['impulse_md'] = md
+
+    # 3. Swing Points für Stop-Loss (unverändert)
     indicators['swing_low'] = data['low'].rolling(window=swing_lookback).min()
     indicators['swing_high'] = data['high'].rolling(window=swing_lookback).max()
     
-    # Gedächtnis aufbauen
-    memory = {1: {}, 0: {}} # 1: uptrends, 0: downtrends
-    
+    # 4. Gedächtnis und Prognose (Logik unverändert, kann so bleiben)
+    memory = {1: {}, 0: {}}
     trend_init_price = 0
     trend_start_index = 0
     current_trend = None
@@ -62,13 +91,11 @@ def calculate_macd_forecast_indicators(data, params):
             if len(memory[current_trend][trend_duration]) > max_memory:
                 memory[current_trend][trend_duration].pop(0)
 
-    # Prognose berechnen
     forecast_len = params.get('forecast_len', 100)
     up_per = params.get('upper_percentile', 80)
-    mid_per = params.get('mid_percentile', 50)
     dn_per = params.get('lower_percentile', 20)
     
-    for p in ['upper', 'mid', 'lower']:
+    for p in ['upper', 'lower']:
         indicators[f'{p}_forecast'] = np.nan
 
     triggers = (indicators['uptrend'] != indicators['uptrend'].shift(1)).fillna(False)
@@ -86,16 +113,12 @@ def calculate_macd_forecast_indicators(data, params):
                 historical_deviations = memory[trend_type][future_duration]
                 
                 upper_dev = np.percentile(historical_deviations, up_per)
-                mid_dev = np.percentile(historical_deviations, mid_per)
                 lower_dev = np.percentile(historical_deviations, dn_per)
                 
                 if i + step < len(indicators):
-                    # Direkter Zugriff via .iat für Performance
                     indicators.iat[i + step, indicators.columns.get_loc('upper_forecast')] = init_price + upper_dev
-                    indicators.iat[i + step, indicators.columns.get_loc('mid_forecast')] = init_price + mid_dev
                     indicators.iat[i + step, indicators.columns.get_loc('lower_forecast')] = init_price + lower_dev
 
-    # Fülle die Prognosewerte für die Dauer des Trends
-    indicators[['upper_forecast', 'mid_forecast', 'lower_forecast']] = indicators[['upper_forecast', 'mid_forecast', 'lower_forecast']].ffill()
+    indicators[['upper_forecast', 'lower_forecast']] = indicators[['upper_forecast', 'lower_forecast']].ffill()
 
     return data.join(indicators)
