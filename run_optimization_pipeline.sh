@@ -49,11 +49,22 @@ case "$mode" in
             exit 1
         fi
 
-        # NEU: Zeige die gefundenen Kandidaten an
-        echo -e "\n${YELLOW}--- VON STUFE 1 GEFUNDENE TOP 5 KANDIDATEN ---${NC}"
+        # NEU: "Quality Gate" - Prüfen, ob die Ergebnisse von Stufe 1 brauchbar sind.
+        # Wir suchen nach einer "pnl"-Zeile, die NICHT den Strafwert -1000.0 enthält.
+        # Wenn wir keine solche Zeile finden, sind alle Ergebnisse schlecht.
+        if ! grep '"pnl":' "$CANDIDATES_FILE" | grep -v -- '-1000.0' > /dev/null; then
+            echo -e "\n${RED}---------------------------------------------------------------------------"
+            echo -e "ABBRUCH: Stufe 1 hat keine Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
+            echo -e "Alle getesteten Parameter waren unprofitabel oder haben zu selten gehandelt."
+            echo -e "Tipp: Versuchen Sie, die 'Mindestanzahl an Trades' zu senken oder einen längeren Zeitraum zu testen."
+            echo -e "---------------------------------------------------------------------------${NC}"
+            deactivate
+            exit 1
+        fi
+
+        echo -e "\n${YELLOW}--- VON STUFE 1 GEFUNDENE TOP KANDIDATEN ---${NC}"
         cat "$CANDIDATES_FILE"
         echo -e "${YELLOW}---------------------------------------------${NC}\n"
-
 
         echo -e "${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
         python3 "$LOCAL_REFINER" --jobs "$N_CORES"
