@@ -6,7 +6,7 @@ import json
 import pandas as pd
 import numpy as np
 import warnings
-from datetime import timedelta, datetime as dt
+from datetime import timedelta
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -21,15 +21,15 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
     cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
 
     required_start = pd.to_datetime(start_date_str, utc=True)
-    # KORREKTUR: Wir prüfen gegen das Ende des angeforderten Tages
-    required_end = pd.to_datetime(end_date_str, utc=True) + timedelta(days=1) - timedelta(seconds=1)
+    required_end = pd.to_datetime(end_date_str, utc=True)
 
     if os.path.exists(cache_file):
         print(f"Lade Daten für {symbol} aus dem Cache...")
         data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
         data.index = pd.to_datetime(data.index, utc=True)
         
-        if not data.empty and data.index.min() <= required_start and data.index.max() >= (required_end - timedelta(days=2)):
+        # KORRIGIERTE LOGIK: Prüft, ob der angeforderte Zeitraum im Cache enthalten ist
+        if not data.empty and data.index.min() <= required_start and data.index.max() >= required_end:
             print("Cache ist ausreichend aktuell. Verwende Cache-Daten.")
             return data.loc[start_date_str:end_date_str]
         else:
