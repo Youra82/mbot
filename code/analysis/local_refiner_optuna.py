@@ -8,9 +8,8 @@ import optuna
 import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from analysis.backtest import run_mbot_backtest
+from analysis.backtest import run_mbot_backtest, load_data
 from utilities.strategy_logic import calculate_mbot_indicators
-from analysis.global_optimizer_pymoo import load_data
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -18,7 +17,6 @@ HISTORICAL_DATA = None
 START_CAPITAL = 1000.0
 BASE_PARAMS = {}
 
-# Objective-Funktion für Optuna, angepasst an mbot-Parameter
 def objective(trial):
     base = BASE_PARAMS['params']
     
@@ -50,7 +48,6 @@ def objective(trial):
     pnl = result.get('total_pnl_pct', -1000)
     drawdown = result.get('max_drawdown_pct', 1.0)
     
-    # Score-Funktion: PnL, gewichtet mit dem Drawdown
     score = pnl * (1 - drawdown)
     return score if np.isfinite(score) else -float('inf')
 
@@ -93,8 +90,8 @@ def main(n_jobs, n_trials):
         print("     +++ FINALES BESTES ERGEBNIS NACH GLOBALER & LOKALER OPTIMIERUNG +++")
         print("="*80)
         
-        # Finale Parameter aus dem besten Trial extrahieren
-        final_params = {
+        # KORREKTUR: Stelle die finale Parameter-Struktur exakt so zusammen, wie sie im Backtest erwartet wird.
+        final_params_for_config = {
             'macd': {
                 'fast': best_overall_trial.params['macd_fast'], 'slow': best_overall_trial.params['macd_slow'],
                 'signal': best_overall_trial.params['macd_signal'], 'atr_period': 14
@@ -113,10 +110,13 @@ def main(n_jobs, n_trials):
             }
         }
         
-        # Finalen Backtest durchführen
-        backtest_params = {**final_params, 'start_capital': START_CAPITAL}
-        data_with_indicators = calculate_mbot_indicators(HISTORICAL_DATA.copy(), backtest_params)
-        final_result = run_mbot_backtest(data_with_indicators.dropna(), backtest_params)
+        # KORREKTUR: Verwende exakt diese Struktur für den finalen Backtest
+        final_backtest_params = {**final_params_for_config, 'start_capital': best_overall_info['start_capital']}
+        
+        # Lade die Daten für den finalen Backtest neu, um sicherzugehen
+        final_data = load_data(best_overall_info['symbol'], best_overall_info['timeframe'], best_overall_info['start_date'], best_overall_info['end_date'])
+        data_with_indicators = calculate_mbot_indicators(final_data.copy(), final_backtest_params)
+        final_result = run_mbot_backtest(data_with_indicators.dropna(), final_backtest_params)
 
         print(f"  HANDELSCOIN: {best_overall_info['symbol']} | TIMEFRAME: {best_overall_info['timeframe']}")
         print(f"  PERFORMANCE-SCORE: {best_overall_score:.2f} (PnL, gewichtet mit Drawdown)")
@@ -130,7 +130,7 @@ def main(n_jobs, n_trials):
         print("\n  >>> EINSTELLUNGEN FÜR DEINE 'config.json' <<<")
         config_output = {
             "market": {"symbol": best_overall_info['symbol'], "timeframe": best_overall_info['timeframe']},
-            **final_params,
+            **final_params_for_config,
             "behavior": {"use_longs": True, "use_shorts": True}
         }
         print(json.dumps(config_output, indent=4))
