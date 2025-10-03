@@ -52,7 +52,13 @@ class MbotOptimizationProblem(Problem):
                 },
                 'start_capital': START_CAPITAL
             }
-            
+
+            # NEU: Überprüfung auf gültige MACD-Parameter (fast < slow)
+            if params['macd']['fast'] >= params['macd']['slow']:
+                # Ungültige Parameter, sofort mit schlechtem Ergebnis bestrafen
+                results.append([9999, 100.0]) # Entspricht PnL = -9999%, Drawdown = 100%
+                continue # Überspringe die Berechnung und gehe zum nächsten Individuum
+
             data_with_indicators = calculate_mbot_indicators(HISTORICAL_DATA.copy(), params)
             result = run_mbot_backtest(data_with_indicators.dropna(), params)
             
@@ -101,7 +107,7 @@ def main(n_procs, n_gen_default):
                 with tqdm(total=n_gen, desc="Generationen") as pbar:
                     res = minimize(problem, algorithm, termination, seed=1, callback=lambda alg: pbar.update(1), verbose=False)
 
-                valid_indices = [i for i, f in enumerate(res.F) if f[0] < 0] # Nur profitable Ergebnisse
+                valid_indices = [i for i, f in enumerate(res.F) if f[0] < 9000] # Nur profitable Ergebnisse (und nicht die bestraften)
                 if not valid_indices: continue
                 
                 # Nimm die Top 5 Kandidaten basierend auf PnL
