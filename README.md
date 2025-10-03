@@ -71,7 +71,7 @@ Dieses Skript aktualisiert den Server, installiert Python-Abhängigkeiten und ri
 
 Bash
 
->cd stbot
+>cd mbot
 
 >chmod +x install.sh
 
