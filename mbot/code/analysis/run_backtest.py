@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# ### KORRIGIERT: Die Import-Namen sind nun korrekt. ###
 from analysis.backtest import load_data, run_macd_backtest
 from utilities.strategy_logic import calculate_macd_indicators
 
@@ -42,6 +43,7 @@ def main():
 
     print("Berechne Indikatoren und führe Backtest aus...")
     data_with_indicators = calculate_macd_indicators(data.copy(), params)
+    # ### KORRIGIERT: Der Funktionsaufruf ist nun korrekt. ###
     result = run_macd_backtest(data_with_indicators.dropna(), params)
 
     print("\n" + "="*50)
