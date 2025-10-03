@@ -1,10 +1,8 @@
-# Flexible requirements list for robust installation across different systems.
-# This allows pip to resolve the correct dependencies for the target environment.
 ccxt==4.3.5
-pandas
-pandas-ta
-requests
-numpy
+pandas==2.1.3
+ta==0.11.0
+requests==2.31.0
+numpy==1.26.2
 pymoo
 optuna
 pydantic
