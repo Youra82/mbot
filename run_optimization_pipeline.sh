@@ -9,11 +9,10 @@ BACKTESTER="$SCRIPT_DIR/code/analysis/run_backtest.py"
 CANDIDATES_FILE="$SCRIPT_DIR/code/analysis/optimization_candidates.json"
 CACHE_DIR="$SCRIPT_DIR/code/analysis/historical_data"
 
-# --- Farbcodes für die Ausgabe ---
+# --- Farbcodes ---
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # --- Virtuelle Umgebung aktivieren ---
@@ -26,7 +25,7 @@ fi
 
 # --- Hauptmenü ---
 echo -e "${BLUE}======================================================="
-echo "        mbot Analyse- & Optimierungs-Werkzeuge"
+echo "           Analyse- & Optimierungs-Werkzeuge (mbot)"
 echo -e "=======================================================${NC}"
 echo "Wähle einen Modus:"
 echo "  1) Komplette Optimierungs-Pipeline starten (Pymoo & Optuna)"
@@ -49,30 +48,7 @@ case "$mode" in
             exit 1
         fi
 
-        # "Quality Gate" - Prüfen, ob die Ergebnisse von Stufe 1 brauchbar sind.
-        if ! grep '"pnl":' "$CANDIDATES_FILE" | grep -v -- '"pnl": -' > /dev/null; then
-            if ! command -v jq &> /dev/null; then
-                echo -e "\n${RED}---------------------------------------------------------------------------"
-                echo -e "ABBRUCH: Stufe 1 hat keine profitablen Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
-                echo -e "(Installieren Sie 'jq' für mehr Details: sudo apt-get install jq)"
-                echo -e "---------------------------------------------------------------------------${NC}"
-            else
-                MAX_TRADES=$(jq '[.[] | .trades_count] | max' "$CANDIDATES_FILE")
-                echo -e "\n${RED}---------------------------------------------------------------------------"
-                echo -e "ABBRUCH: Stufe 1 hat keine profitablen Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
-                echo -e "Der beste Versuch hatte nur ${YELLOW}${MAX_TRADES}${RED} Trades."
-                echo -e "Tipp: Senken Sie die 'Mindestanzahl an Trades' oder testen Sie einen längeren Zeitraum."
-                echo -e "---------------------------------------------------------------------------${NC}"
-            fi
-            deactivate
-            exit 1
-        fi
-
-        echo -e "\n${YELLOW}--- VON STUFE 1 GEFUNDENE TOP KANDIDATEN ---${NC}"
-        cat "$CANDIDATES_FILE"
-        echo -e "${YELLOW}---------------------------------------------${NC}\n"
-
-        echo -e "${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
+        echo -e "\n${GREEN}>>> STARTE STUFE 2: Lokale Verfeinerung mit Optuna...${NC}"
         python3 "$LOCAL_REFINER" --jobs "$N_CORES"
         ;;
     2)
