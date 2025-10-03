@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import argparse
 import optuna
 import numpy as np
 import pandas as pd
@@ -89,7 +88,6 @@ def main(n_jobs, n_trials):
         data_final = calculate_macd_forecast_indicators(HISTORICAL_DATA.copy(), final_params)
         final_result = run_backtest(data_final.dropna(), final_params)
 
-        # Config für mbot erstellen
         strategy_params = {k: v for k, v in final_params.items() if k in ['fast_len', 'slow_len', 'signal_len', 'trend_determination', 'max_memory', 'forecast_len', 'upper_percentile', 'mid_percentile', 'lower_percentile', 'swing_lookback']}
         risk_params = {k: v for k, v in final_params.items() if k in ['margin_mode', 'balance_fraction_pct', 'sl_buffer_pct', 'leverage']}
         addons_params = final_params.get('addons', {})
@@ -115,8 +113,13 @@ def main(n_jobs, n_trials):
         print("\n" + "="*80)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Stufe 2: Lokale Parameter-Verfeinerung für mbot.")
-    parser.add_argument('--jobs', type=int, default=1, help='Anzahl der CPU-Kerne.')
-    parser.add_argument('--trials', type=int, default=100, help='Anzahl der Versuche pro Kandidat.')
-    args = parser.parse_args()
-    main(n_jobs=args.jobs, n_trials=args.trials)
+    # KORRIGIERTER Block ohne argparse
+    if len(sys.argv) > 1:
+        n_jobs = int(sys.argv[1])
+    else:
+        n_jobs = 1
+    
+    # Die Anzahl der Trials ist hier fest codiert
+    n_trials = 100 
+    
+    main(n_jobs=n_jobs, n_trials=n_trials)
