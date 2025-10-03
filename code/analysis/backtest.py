@@ -12,50 +12,70 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.bitget_futures import BitgetFutures
-from utilities.strategy_logic import calculate_mbot_indicators # Geändert
+from utilities.strategy_logic import calculate_mbot_indicators
 
-# Datenladefunktion bleibt gleich, sehr robust
+# Datenladefunktion mit verbessertem Feedback
 def load_data(symbol, timeframe, start_date_str, end_date_str):
     cache_dir = os.path.join(os.path.dirname(__file__), '..', 'analysis', 'historical_data')
     os.makedirs(cache_dir, exist_ok=True)
     symbol_filename = symbol.replace('/', '-').replace(':', '-')
     cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
+
+    # Prüfen, ob eine gültige Cache-Datei existiert
     if os.path.exists(cache_file):
+        print(f"Lade Daten für {symbol} aus dem Cache...")
         data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
         data.index = pd.to_datetime(data.index, utc=True)
         required_start = pd.to_datetime(start_date_str, utc=True)
-        if data.index.min() <= required_start and data.index.max() >= pd.to_datetime(end_date_str, utc=True):
+        # Sicherstellen, dass der Cache den gesamten angeforderten Zeitraum abdeckt
+        if not data.empty and data.index.min() <= required_start and data.index.max() >= pd.to_datetime(end_date_str, utc=True):
+            print("Cache ist aktuell und vollständig. Verwende Cache-Daten.")
             return data.loc[start_date_str:end_date_str]
+        else:
+            print("Cache ist unvollständig oder veraltet. Starte neuen Download.")
+
     try:
+        # NEU: Sichtbares Feedback für den Benutzer
+        print(f"\033[94mVersuche, historische Daten für {symbol} ({timeframe}) von der Börse herunterzuladen...\033[0m")
+        
         project_root = os.path.join(os.path.dirname(__file__), '..', '..')
         key_path = os.path.abspath(os.path.join(project_root, 'secret.json'))
         with open(key_path, "r") as f: secrets = json.load(f)
-        api_setup = secrets.get('mbot', secrets.get('bitget_example')) # Geändert zu mbot
+        api_setup = secrets.get('mbot', secrets.get('bitget_example'))
         bitget = BitgetFutures(api_setup)
+        
+        # Lade einen größeren Zeitraum, um genügend Daten für Indikatoren zu haben
         download_start = (pd.to_datetime(start_date_str) - timedelta(days=50)).strftime('%Y-%m-%d')
         download_end = (pd.to_datetime(end_date_str) + timedelta(days=1)).strftime('%Y-%m-%d')
+        
         full_data = bitget.fetch_historical_ohlcv(symbol, timeframe, download_start, download_end)
+        
+        # NEU: Deutliches Feedback bei Erfolg oder Misserfolg
         if full_data is not None and not full_data.empty:
+            print(f"\033[92mDownload erfolgreich! {len(full_data)} Kerzen erhalten. Speichere im Cache...\033[0m")
             full_data.to_csv(cache_file)
             return full_data.loc[start_date_str:end_date_str]
-        else: return pd.DataFrame()
+        else:
+            # Dies ist der entscheidende Fehlerfall
+            print(f"\033[91mFEHLER: Es konnten keine Daten für {symbol} heruntergeladen werden. Das Handelspaar existiert möglicherweise nicht oder hat keine Daten für den Zeitraum.\033[0m")
+            # Leere Cache-Datei speichern, um wiederholte Downloads zu vermeiden
+            pd.DataFrame().to_csv(cache_file)
+            return pd.DataFrame()
+            
     except Exception as e:
-        print(f"Fehler beim Daten-Download für {timeframe}: {e}"); return pd.DataFrame()
+        print(f"\033[91mEin kritischer Fehler ist beim Daten-Download aufgetreten: {e}\033[0m")
+        return pd.DataFrame()
 
+# Der Rest der Datei bleibt unverändert
 def run_mbot_backtest(data, params):
-    # Parameter extrahieren
     risk = params.get('risk', {})
     forecast = params.get('forecast', {})
-    
     base_leverage = risk.get('base_leverage', 5)
-    max_leverage = risk.get('max_leverage', 20)
     balance_fraction = risk.get('balance_fraction_pct', 100) / 100
     sl_buffer_pct = risk.get('sl_buffer_pct', 0.5) / 100
     tp_atr_multiplier = forecast.get('tp_atr_multiplier', 4.0)
-    
     start_capital = params.get('start_capital', 1000)
     fee_pct = 0.05 / 100
-    
     current_capital = start_capital
     trades_count, wins_count = 0, 0
     trade_log = []
@@ -69,13 +89,11 @@ def run_mbot_backtest(data, params):
 
         if position:
             exit_price, reason = None, None
-            # Stop-Loss Check
             if position['side'] == 'long' and current_candle['low'] <= position['sl_price']:
                 exit_price, reason = position['sl_price'], "Stop-Loss"
             elif position['side'] == 'short' and current_candle['high'] >= position['sl_price']:
                 exit_price, reason = position['sl_price'], "Stop-Loss"
             
-            # Take-Profit Check
             if not exit_price:
                 if position['side'] == 'long' and current_candle['high'] >= position['tp_price']:
                     exit_price, reason = position['tp_price'], "Take-Profit"
@@ -86,17 +104,14 @@ def run_mbot_backtest(data, params):
                 pnl = (exit_price - position['entry_price']) * position['amount'] if position['side'] == 'long' else (position['entry_price'] - exit_price) * position['amount']
                 notional_value = position['entry_price'] * position['amount'] + exit_price * position['amount']
                 pnl -= notional_value * fee_pct
-                
                 current_capital += pnl
                 trades_count += 1
                 if pnl > 0: wins_count += 1
-                
                 trade_log.append({
                     "timestamp": str(current_candle.name), "side": position['side'], "pnl": pnl,
                     "balance": current_capital, "reason": reason, "leverage": position['leverage']
                 })
                 position = None
-
                 if current_capital <= 0: current_capital = 0
                 peak_capital = max(peak_capital, current_capital)
                 drawdown = (peak_capital - current_capital) / peak_capital if peak_capital > 0 else 0
@@ -120,14 +135,12 @@ def run_mbot_backtest(data, params):
             if trade_side:
                 entry_price = current_candle['close']
                 amount = (current_capital * balance_fraction * base_leverage) / entry_price
-                
                 if trade_side == 'long':
                     sl_price = prev_candle['swing_low'] * (1 - sl_buffer_pct)
                     tp_price = entry_price + current_candle['tp_atr_distance']
-                else: # short
+                else:
                     sl_price = prev_candle['swing_high'] * (1 + sl_buffer_pct)
                     tp_price = entry_price - current_candle['tp_atr_distance']
-
                 position = {
                     'side': trade_side, 'entry_price': entry_price, 'amount': amount,
                     'sl_price': sl_price, 'tp_price': tp_price, 'leverage': base_leverage
