@@ -6,7 +6,7 @@ import json
 import pandas as pd
 import numpy as np
 import warnings
-from datetime import timedelta
+from datetime import timedelta, datetime as dt
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -14,51 +14,46 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.bitget_futures import BitgetFutures
 from utilities.strategy_logic import calculate_mbot_indicators
 
-# Datenladefunktion mit verbessertem Feedback
 def load_data(symbol, timeframe, start_date_str, end_date_str):
     cache_dir = os.path.join(os.path.dirname(__file__), '..', 'analysis', 'historical_data')
     os.makedirs(cache_dir, exist_ok=True)
     symbol_filename = symbol.replace('/', '-').replace(':', '-')
     cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
 
-    # Prüfen, ob eine gültige Cache-Datei existiert
+    required_start = pd.to_datetime(start_date_str, utc=True)
+    # KORREKTUR: Wir prüfen gegen das Ende des angeforderten Tages
+    required_end = pd.to_datetime(end_date_str, utc=True) + timedelta(days=1) - timedelta(seconds=1)
+
     if os.path.exists(cache_file):
         print(f"Lade Daten für {symbol} aus dem Cache...")
         data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
         data.index = pd.to_datetime(data.index, utc=True)
-        required_start = pd.to_datetime(start_date_str, utc=True)
-        # Sicherstellen, dass der Cache den gesamten angeforderten Zeitraum abdeckt
-        if not data.empty and data.index.min() <= required_start and data.index.max() >= pd.to_datetime(end_date_str, utc=True):
-            print("Cache ist aktuell und vollständig. Verwende Cache-Daten.")
+        
+        if not data.empty and data.index.min() <= required_start and data.index.max() >= (required_end - timedelta(days=2)):
+            print("Cache ist ausreichend aktuell. Verwende Cache-Daten.")
             return data.loc[start_date_str:end_date_str]
         else:
             print("Cache ist unvollständig oder veraltet. Starte neuen Download.")
 
     try:
-        # NEU: Sichtbares Feedback für den Benutzer
         print(f"\033[94mVersuche, historische Daten für {symbol} ({timeframe}) von der Börse herunterzuladen...\033[0m")
-        
         project_root = os.path.join(os.path.dirname(__file__), '..', '..')
         key_path = os.path.abspath(os.path.join(project_root, 'secret.json'))
         with open(key_path, "r") as f: secrets = json.load(f)
         api_setup = secrets.get('mbot', secrets.get('bitget_example'))
         bitget = BitgetFutures(api_setup)
         
-        # Lade einen größeren Zeitraum, um genügend Daten für Indikatoren zu haben
-        download_start = (pd.to_datetime(start_date_str) - timedelta(days=50)).strftime('%Y-%m-%d')
-        download_end = (pd.to_datetime(end_date_str) + timedelta(days=1)).strftime('%Y-%m-%d')
+        download_start = (required_start - timedelta(days=50)).strftime('%Y-%m-%d')
+        download_end = (required_end + timedelta(days=1)).strftime('%Y-%m-%d')
         
         full_data = bitget.fetch_historical_ohlcv(symbol, timeframe, download_start, download_end)
         
-        # NEU: Deutliches Feedback bei Erfolg oder Misserfolg
         if full_data is not None and not full_data.empty:
             print(f"\033[92mDownload erfolgreich! {len(full_data)} Kerzen erhalten. Speichere im Cache...\033[0m")
             full_data.to_csv(cache_file)
             return full_data.loc[start_date_str:end_date_str]
         else:
-            # Dies ist der entscheidende Fehlerfall
-            print(f"\033[91mFEHLER: Es konnten keine Daten für {symbol} heruntergeladen werden. Das Handelspaar existiert möglicherweise nicht oder hat keine Daten für den Zeitraum.\033[0m")
-            # Leere Cache-Datei speichern, um wiederholte Downloads zu vermeiden
+            print(f"\033[91mFEHLER: Es konnten keine Daten für {symbol} heruntergeladen werden.\033[0m")
             pd.DataFrame().to_csv(cache_file)
             return pd.DataFrame()
             
