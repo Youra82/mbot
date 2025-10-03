@@ -17,19 +17,15 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
     symbol_filename = symbol.replace('/', '-').replace(':', '-')
     cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
     
-    # mbot benötigt ca. 200 Tage Vordaten für ein gutes "Gedächtnis"
     required_days_before = 200
     download_start_dt = pd.to_datetime(start_date_str) - timedelta(days=required_days_before)
     
     if os.path.exists(cache_file):
         data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
         data.index = pd.to_datetime(data.index, utc=True)
-        # Prüfen, ob der Cache genügend Daten enthält
         if data.index.min() <= download_start_dt.tz_localize('UTC') and data.index.max() >= pd.to_datetime(end_date_str).tz_localize('UTC'):
-            # Gesamten benötigten Zeitraum zurückgeben
             return data.loc[download_start_dt.strftime('%Y-%m-%d'):end_date_str]
 
-    # Daten herunterladen, wenn Cache nicht ausreicht
     try:
         project_root = os.path.join(os.path.dirname(__file__), '..', '..')
         key_path = os.path.abspath(os.path.join(project_root, 'secret.json'))
@@ -107,6 +103,11 @@ def run_backtest(data, params):
         if not position:
             long_signal = prev_candle['macd'] < prev_candle['signal'] and current_candle['macd'] > current_candle['signal']
             short_signal = prev_candle['macd'] > prev_candle['signal'] and current_candle['macd'] < current_candle['signal']
+
+            impulse_cfg = params.get('addons', {}).get('impulse_macd_filter', {})
+            if impulse_cfg.get('enabled', False):
+                long_signal = long_signal and (current_candle['impulse_md'] > 0)
+                short_signal = short_signal and (current_candle['impulse_md'] < 0)
 
             side = None
             if long_signal:
