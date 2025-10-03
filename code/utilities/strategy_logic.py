@@ -5,9 +5,11 @@ from datetime import timedelta
 
 # Hilfsfunktionen für den Impulse MACD
 def calc_smma(src, length):
+    """ Smoothed Moving Average """
     return src.ewm(alpha=1.0/length, adjust=False).mean()
 
 def calc_zlema(src, length):
+    """ Zero-Lag Exponential Moving Average """
     ema1 = src.ewm(span=length, adjust=False).mean()
     ema2 = ema1.ewm(span=length, adjust=False).mean()
     d = ema1 - ema2
@@ -21,11 +23,12 @@ def calculate_macd_forecast_indicators(data, params):
     trend_determination = params.get('trend_determination', 'MACD - Signal')
     max_memory = params.get('max_memory', 50)
     swing_lookback = params.get('swing_lookback', 20)
+    addons = params.get('addons', {})
 
     # DataFrame für alle Indikatoren initialisieren
     indicators = pd.DataFrame(index=data.index)
 
-    # 1. Standard-MACD Berechnungen (unverändert)
+    # 1. Standard-MACD Berechnungen
     macd_indicator = ta.trend.MACD(close=data['close'], window_slow=slow, window_fast=fast, window_sign=sigLen)
     indicators['macd'] = macd_indicator.macd()
     indicators['signal'] = macd_indicator.macd_signal()
@@ -37,8 +40,8 @@ def calculate_macd_forecast_indicators(data, params):
     
     indicators['downtrend'] = ~indicators['uptrend']
     
-    # 2. HINZUGEFÜGT: Impulse MACD Filter Berechnungen
-    impulse_cfg = params.get('impulse_macd_filter', {})
+    # 2. Impulse MACD Filter Berechnungen
+    impulse_cfg = addons.get('impulse_macd_filter', {})
     if impulse_cfg.get('enabled', False):
         lengthMA = impulse_cfg.get('lengthMA', 34)
         src = (data['high'] + data['low'] + data['close']) / 3
@@ -53,11 +56,11 @@ def calculate_macd_forecast_indicators(data, params):
         md[mi < lo] = mi - lo
         indicators['impulse_md'] = md
 
-    # 3. Swing Points für Stop-Loss (unverändert)
+    # 3. Swing Points für Stop-Loss
     indicators['swing_low'] = data['low'].rolling(window=swing_lookback).min()
     indicators['swing_high'] = data['high'].rolling(window=swing_lookback).max()
     
-    # 4. Gedächtnis und Prognose (Logik unverändert, kann so bleiben)
+    # 4. Gedächtnis und Prognose aufbauen
     memory = {1: {}, 0: {}}
     trend_init_price = 0
     trend_start_index = 0
