@@ -1,0 +1,31 @@
+{
+    "market": {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "1h"
+    },
+    "macd": {
+        "fast": 12,
+        "slow": 26,
+        "signal": 9,
+        "atr_period": 14
+    },
+    "impulse_macd": {
+        "length_ma": 34,
+        "length_signal": 9
+    },
+    "forecast": {
+        "tp_atr_multiplier": 4.0
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "balance_fraction_pct": 10,
+        "sl_buffer_pct": 0.5,
+        "base_leverage": 5,
+        "max_leverage": 20,
+        "swing_lookback": 20
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    }
+}
