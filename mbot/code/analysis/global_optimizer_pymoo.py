@@ -16,6 +16,7 @@ from pymoo.termination import get_termination
 from pymoo.core.callback import Callback
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# ### KORRIGIERT: Der Import-Name ist nun korrekt. ###
 from analysis.backtest import load_data, run_macd_backtest
 from utilities.strategy_logic import calculate_macd_indicators
 
@@ -70,6 +71,7 @@ class MACDOptimizationProblem(Problem):
             }
             
             data_with_indicators = calculate_macd_indicators(HISTORICAL_DATA.copy(), params)
+            # ### KORRIGIERT: Der Funktionsaufruf ist nun korrekt. ###
             result = run_macd_backtest(data_with_indicators.dropna(), params)
             pnl = result.get('total_pnl_pct', -1000)
             drawdown = result.get('max_drawdown_pct', 1.0) * 100
