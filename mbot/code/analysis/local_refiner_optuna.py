@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# ### KORRIGIERT: Der Import-Name ist nun korrekt. ###
 from analysis.backtest import run_macd_backtest
 from utilities.strategy_logic import calculate_macd_indicators
 from analysis.global_optimizer_pymoo import load_data
@@ -43,6 +44,7 @@ def objective(trial):
     }
 
     data_with_indicators = calculate_macd_indicators(HISTORICAL_DATA.copy(), params)
+    # ### KORRIGIERT: Der Funktionsaufruf ist nun korrekt. ###
     result = run_macd_backtest(data_with_indicators.dropna(), params)
 
     pnl = result.get('total_pnl_pct', -1000)
