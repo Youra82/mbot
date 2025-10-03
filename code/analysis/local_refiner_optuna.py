@@ -1,11 +1,6 @@
 # code/analysis/local_refiner_optuna.py for mbot
 
-import json
-import os
-import sys
-import argparse
-import optuna
-import numpy as np
+import json, os, sys, argparse, optuna, numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from analysis.backtest import run_mbot_backtest, load_data
@@ -17,21 +12,16 @@ HISTORICAL_DATA, START_CAPITAL, BASE_PARAMS = None, 1000.0, {}
 def objective(trial):
     base_p = BASE_PARAMS['params']
     params = {
-        'macd': {
-            'fast': trial.suggest_int('macd_fast', max(3, base_p['macd']['fast'] - 3), base_p['macd']['fast'] + 3),
-            'slow': trial.suggest_int('macd_slow', max(10, base_p['macd']['slow'] - 5), base_p['macd']['slow'] + 5),
-            'signal': trial.suggest_int('macd_signal', max(3, base_p['macd']['signal'] - 3), base_p['macd']['signal'] + 3),
-        },
         'impulse_macd': {
-            'length_ma': trial.suggest_int('impulse_length_ma', max(15, base_p['impulse_macd']['length_ma'] - 10), base_p['impulse_macd']['length_ma'] + 10),
-            'length_signal': trial.suggest_int('impulse_length_signal', max(3, base_p['impulse_macd']['length_signal'] - 3), base_p['impulse_macd']['length_signal'] + 3),
+            'length_ma': trial.suggest_int('length_ma', max(15, base_p['impulse_macd']['length_ma'] - 10), base_p['impulse_macd']['length_ma'] + 10),
+            'length_signal': trial.suggest_int('length_signal', max(3, base_p['impulse_macd']['length_signal'] - 3), base_p['impulse_macd']['length_signal'] + 3),
         },
-        'forecast': {'tp_atr_multiplier': trial.suggest_float('tp_atr_multiplier', base_p['forecast']['tp_atr_multiplier'] * 0.7, base_p['forecast']['tp_atr_multiplier'] * 1.3)},
         'risk': {
+            'tp_atr_multiplier': trial.suggest_float('tp_atr_multiplier', base_p['risk']['tp_atr_multiplier'] * 0.7, base_p['risk']['tp_atr_multiplier'] * 1.3),
             'sl_buffer_pct': trial.suggest_float('sl_buffer_pct', base_p['risk']['sl_buffer_pct'] * 0.5, base_p['risk']['sl_buffer_pct'] * 1.5, log=True),
             'swing_lookback': trial.suggest_int('swing_lookback', max(5, base_p['risk']['swing_lookback'] - 10), base_p['risk']['swing_lookback'] + 10),
             'base_leverage': trial.suggest_int('base_leverage', max(1, base_p['risk']['base_leverage'] - 5), base_p['risk']['base_leverage'] + 5),
-            'balance_fraction_pct': 10
+            'balance_fraction_pct': 10, 'atr_period': 14
         }, 'start_capital': START_CAPITAL
     }
     data_with_indicators = calculate_mbot_indicators(HISTORICAL_DATA.copy(), params)
@@ -42,12 +32,11 @@ def objective(trial):
 
 def main(n_jobs, n_trials):
     print("\n--- [Stufe 2/2] Lokale Verfeinerung für mbot mit Optuna ---")
-    input_file = os.path.join(os.path.dirname(__file__), 'optimization_candidates.json')
     try:
-        with open(input_file, 'r') as f: candidates = json.load(f)
+        with open(os.path.join(os.path.dirname(__file__), 'optimization_candidates.json'), 'r') as f: candidates = json.load(f)
         print(f"Lade {len(candidates)} Kandidaten zur Verfeinerung...")
     except FileNotFoundError:
-        print(f"Fehler: '{input_file}' nicht gefunden."); return
+        print("Fehler: Kandidaten-Datei nicht gefunden."); return
     if not candidates: return
 
     best_overall_trial, best_overall_score, best_overall_info = None, -float('inf'), {}
@@ -64,28 +53,27 @@ def main(n_jobs, n_trials):
     if best_overall_trial:
         print("\n\n" + "="*80 + "\n     +++ FINALES BESTES ERGEBNIS +++\n" + "="*80)
         final_params = {
-            'macd': {'fast': best_overall_trial.params['macd_fast'], 'slow': best_overall_trial.params['macd_slow'], 'signal': best_overall_trial.params['macd_signal'], 'atr_period': 14},
-            'impulse_macd': {'length_ma': best_overall_trial.params['impulse_length_ma'], 'length_signal': best_overall_trial.params['impulse_length_signal']},
-            'forecast': {'tp_atr_multiplier': round(best_overall_trial.params['tp_atr_multiplier'], 2)},
-            'risk': {'margin_mode': "isolated", 'balance_fraction_pct': 10, 'max_leverage': 20, 'sl_buffer_pct': round(best_overall_trial.params['sl_buffer_pct'], 2), 'swing_lookback': best_overall_trial.params['swing_lookback'], 'base_leverage': best_overall_trial.params['base_leverage']}
+            'impulse_macd': { 'length_ma': best_overall_trial.params['length_ma'], 'length_signal': best_overall_trial.params['length_signal'] },
+            'risk': {
+                'margin_mode': "isolated", 'balance_fraction_pct': 10, 'max_leverage': 20, 'atr_period': 14,
+                'tp_atr_multiplier': round(best_overall_trial.params['tp_atr_multiplier'], 2),
+                'sl_buffer_pct': round(best_overall_trial.params['sl_buffer_pct'], 2),
+                'swing_lookback': best_overall_trial.params['swing_lookback'],
+                'base_leverage': best_overall_trial.params['base_leverage']
+            }
         }
-        final_backtest_params = {**final_params, 'start_capital': best_overall_info['start_capital']}
         final_data = load_data(best_overall_info['symbol'], best_overall_info['timeframe'], best_overall_info['start_date'], best_overall_info['end_date'])
-        data_with_indicators = calculate_mbot_indicators(final_data.copy(), final_backtest_params)
-        final_result = run_mbot_backtest(data_with_indicators.dropna(), final_backtest_params)
+        data_with_indicators = calculate_mbot_indicators(final_data.copy(), {**final_params, 'start_capital': best_overall_info['start_capital']})
+        final_result = run_mbot_backtest(data_with_indicators.dropna(), {**final_params, 'start_capital': best_overall_info['start_capital']})
 
         print(f"  HANDELSCOIN: {best_overall_info['symbol']} | TIMEFRAME: {best_overall_info['timeframe']}")
         print(f"  PERFORMANCE-SCORE: {best_overall_score:.2f} (PnL, gewichtet mit Drawdown)")
         print("\n  FINALE PERFORMANCE-METRIKEN:")
-        print(f"    - Gesamtgewinn (PnL): {final_result['total_pnl_pct']:.2f} %")
-        print(f"    - Max. Drawdown:      {final_result['max_drawdown_pct']*100:.2f} %")
-        print(f"    - Anzahl Trades:      {final_result['trades_count']}")
-        print(f"    - Win-Rate:           {final_result['win_rate']:.2f} %")
+        print(f"    - Gesamtgewinn (PnL): {final_result['total_pnl_pct']:.2f} % \n    - Max. Drawdown:      {final_result['max_drawdown_pct']*100:.2f} % \n    - Anzahl Trades:      {final_result['trades_count']} \n    - Win-Rate:           {final_result['win_rate']:.2f} %")
         
         print("\n  >>> EINSTELLUNGEN FÜR DEINE 'config.json' <<<")
         config_output = {"market": {"symbol": best_overall_info['symbol'], "timeframe": best_overall_info['timeframe']}, **final_params, "behavior": {"use_longs": True, "use_shorts": True}}
-        print(json.dumps(config_output, indent=4))
-        print("\n" + "="*80)
+        print(json.dumps(config_output, indent=4) + "\n" + "="*80)
     else:
         print("Kein gültiges Ergebnis nach der Verfeinerung gefunden.")
 
@@ -93,5 +81,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stufe 2: Lokale Parameter-Verfeinerung für mbot.")
     parser.add_argument('--jobs', type=int, default=1, help='Anzahl der CPU-Kerne.')
     parser.add_argument('--trials', type=int, default=200, help='Anzahl der Versuche pro Kandidat.')
-    args = parser.parse_args()
-    main(n_jobs=args.jobs, n_trials=args.trials)
+    main(n_jobs=parser.parse_args().jobs, n_trials=parser.parse_args().trials)
