@@ -1,7 +1,6 @@
 # code/analysis/global_optimizer_pymoo.py for mbot
 
 import json
-import time
 import numpy as np
 import os
 import sys
@@ -22,15 +21,16 @@ HISTORICAL_DATA = None
 START_CAPITAL = 1000.0
 MINIMUM_TRADES = 20
 
-# Problem-Definition für die mbot-Strategie
 class MbotOptimizationProblem(Problem):
     def __init__(self, **kwargs):
         super().__init__(n_var=9, n_obj=2, n_constr=0,
-                         xl=[5, 15, 5, 20, 5, 1.0, 0.1, 10, 2],
-                         xu=[20, 40, 15, 50, 15, 8.0, 1.5, 40, 15], **kwargs)
+                         xl=[3, 10, 3, 15, 3, 1.0, 0.1, 5, 2],
+                         xu=[25, 50, 20, 60, 20, 10.0, 2.0, 50, 20], **kwargs)
 
     def _evaluate(self, x, out, *args, **kwargs):
         results = []
+        trade_counts = [] # NEU: Separate Liste für Trade-Anzahl
+
         for ind in x:
             params = {
                 'macd': { 'fast': int(ind[0]), 'slow': int(ind[1]), 'signal': int(ind[2]) },
@@ -42,6 +42,7 @@ class MbotOptimizationProblem(Problem):
 
             if params['macd']['fast'] >= params['macd']['slow']:
                 results.append([9999, 100.0]) 
+                trade_counts.append(0)
                 continue
 
             data_with_indicators = calculate_mbot_indicators(HISTORICAL_DATA.copy(), params)
@@ -49,13 +50,16 @@ class MbotOptimizationProblem(Problem):
             
             pnl = result.get('total_pnl_pct', -1000)
             drawdown = result.get('max_drawdown_pct', 1.0) * 100
-            
-            if result['trades_count'] < MINIMUM_TRADES:
+            trades = result.get('trades_count', 0)
+            trade_counts.append(trades) # NEU: Tatsächliche Trade-Anzahl speichern
+
+            if trades < MINIMUM_TRADES:
                 pnl = -1000
             
             results.append([-pnl, drawdown])
-            
-        out["F"] = np.array(results)
+        
+        # NEU: Trade-Anzahl als drittes "Ziel" an Pymoo übergeben, damit wir sie später auslesen können
+        out["F"] = np.column_stack([np.array(results), np.array(trade_counts)])
 
 def main(n_procs, n_gen_default):
     print("\n--- [Stufe 1/2] Globale Suche für mbot mit Pymoo ---")
@@ -80,11 +84,9 @@ def main(n_procs, n_gen_default):
             global HISTORICAL_DATA
             HISTORICAL_DATA = load_data(symbol, timeframe, start_date, end_date)
             
-            # VERBESSERUNG: Deutliche Warnung und garantierter Abbruch für diese Kombination
             if HISTORICAL_DATA.empty:
                 print(f"\n\033[91mFEHLER: Für {symbol} ({timeframe}) im Zeitraum {start_date} bis {end_date} wurden keine Daten gefunden.\033[0m")
-                print("\033[93mDies geschieht meist, wenn das Handelspaar nicht existiert oder der Zeitraum ungültig ist. Überspringe...\033[0m")
-                continue # Springe zur nächsten Symbol/Timeframe-Kombination
+                continue
 
             print(f"\n===== Optimiere {symbol} auf {timeframe} für mbot =====")
             
@@ -95,15 +97,21 @@ def main(n_procs, n_gen_default):
 
                 with tqdm(total=n_gen, desc="Generationen") as pbar:
                     res = minimize(problem, algorithm, termination, seed=1, callback=lambda alg: pbar.update(1), verbose=False)
-
-                valid_indices = [i for i, f in enumerate(res.F) if f[0] < 9000] 
-                if not valid_indices: continue
                 
-                for i in sorted(valid_indices, key=lambda i: res.F[i][0])[:5]:
+                # Alle Ergebnisse sortieren, auch die schlechten
+                # Wir sortieren zuerst nach PnL (aufsteigend, da negativ), dann nach Drawdown
+                sorted_indices = sorted(range(len(res.F)), key=lambda i: (res.F[i][0], res.F[i][1]))
+
+                for i in sorted_indices[:5]: # Nimm die Top 5 der sortierten Liste
                     ind = res.X[i]
+                    pnl_value = -res.F[i][0]
+                    drawdown_value = res.F[i][1]
+                    trades_value = int(res.F[i][2]) # NEU: Trade-Anzahl aus dem Ergebnis extrahieren
+
                     param_dict = {
                         'symbol': symbol, 'timeframe': timeframe, 'start_date': start_date, 'end_date': end_date,
-                        'start_capital': START_CAPITAL, 'pnl': -res.F[i][0], 'drawdown': res.F[i][1],
+                        'start_capital': START_CAPITAL, 'pnl': pnl_value, 'drawdown': drawdown_value,
+                        'trades_count': trades_value, # NEU: Trade-Anzahl ins JSON schreiben
                         'params': {
                             'macd': {'fast': int(ind[0]), 'slow': int(ind[1]), 'signal': int(ind[2])},
                             'impulse_macd': {'length_ma': int(ind[3]), 'length_signal': int(ind[4])},
