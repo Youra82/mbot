@@ -18,25 +18,26 @@ START_CAPITAL = 1000.0
 BASE_PARAMS = {}
 
 def objective(trial):
-    base = BASE_PARAMS['params']
+    # KORREKTUR: Greife korrekt auf die verschachtelten Parameter zu
+    base_p = BASE_PARAMS['params']
     
     params = {
         'macd': {
-            'fast': trial.suggest_int('macd_fast', max(5, base['macd']['fast'] - 3), base['macd']['fast'] + 3),
-            'slow': trial.suggest_int('macd_slow', max(15, base['macd']['slow'] - 5), base['macd']['slow'] + 5),
-            'signal': trial.suggest_int('macd_signal', max(5, base['macd']['signal'] - 3), base['macd']['signal'] + 3),
+            'fast': trial.suggest_int('macd_fast', max(5, base_p['macd']['fast'] - 3), base_p['macd']['fast'] + 3),
+            'slow': trial.suggest_int('macd_slow', max(15, base_p['macd']['slow'] - 5), base_p['macd']['slow'] + 5),
+            'signal': trial.suggest_int('macd_signal', max(5, base_p['macd']['signal'] - 3), base_p['macd']['signal'] + 3),
         },
         'impulse_macd': {
-            'length_ma': trial.suggest_int('impulse_length_ma', max(20, base['impulse_macd']['length_ma'] - 10), base['impulse_macd']['length_ma'] + 10),
-            'length_signal': trial.suggest_int('impulse_length_signal', max(5, base['impulse_macd']['length_signal'] - 3), base['impulse_macd']['length_signal'] + 3),
+            'length_ma': trial.suggest_int('impulse_length_ma', max(20, base_p['impulse_macd']['length_ma'] - 10), base_p['impulse_macd']['length_ma'] + 10),
+            'length_signal': trial.suggest_int('impulse_length_signal', max(5, base_p['impulse_macd']['length_signal'] - 3), base_p['impulse_macd']['length_signal'] + 3),
         },
         'forecast': {
-            'tp_atr_multiplier': trial.suggest_float('tp_atr_multiplier', base['forecast']['tp_atr_multiplier'] * 0.7, base['forecast']['tp_atr_multiplier'] * 1.3),
+            'tp_atr_multiplier': trial.suggest_float('tp_atr_multiplier', base_p['forecast']['tp_atr_multiplier'] * 0.7, base_p['forecast']['tp_atr_multiplier'] * 1.3),
         },
         'risk': {
-            'sl_buffer_pct': trial.suggest_float('sl_buffer_pct', base['risk']['sl_buffer_pct'] * 0.5, base['risk']['sl_buffer_pct'] * 1.5, log=True),
-            'swing_lookback': trial.suggest_int('swing_lookback', max(10, base['risk']['swing_lookback'] - 10), base['risk']['swing_lookback'] + 10),
-            'base_leverage': trial.suggest_int('base_leverage', max(1, base['risk']['base_leverage'] - 5), base['risk']['base_leverage'] + 5),
+            'sl_buffer_pct': trial.suggest_float('sl_buffer_pct', base_p['risk']['sl_buffer_pct'] * 0.5, base_p['risk']['sl_buffer_pct'] * 1.5, log=True),
+            'swing_lookback': trial.suggest_int('swing_lookback', max(10, base_p['risk']['swing_lookback'] - 10), base_p['risk']['swing_lookback'] + 10),
+            'base_leverage': trial.suggest_int('base_leverage', max(1, base_p['risk']['base_leverage'] - 5), base_p['risk']['base_leverage'] + 5),
             'balance_fraction_pct': 10
         },
         'start_capital': START_CAPITAL
@@ -48,7 +49,7 @@ def objective(trial):
     pnl = result.get('total_pnl_pct', -1000)
     drawdown = result.get('max_drawdown_pct', 1.0)
     
-    score = pnl * (1 - drawdown)
+    score = pnl * (1 - drawdown) if result['trades_count'] > 0 else -1000
     return score if np.isfinite(score) else -float('inf')
 
 def main(n_jobs, n_trials):
@@ -90,7 +91,6 @@ def main(n_jobs, n_trials):
         print("     +++ FINALES BESTES ERGEBNIS NACH GLOBALER & LOKALER OPTIMIERUNG +++")
         print("="*80)
         
-        # KORREKTUR: Stelle die finale Parameter-Struktur exakt so zusammen, wie sie im Backtest erwartet wird.
         final_params_for_config = {
             'macd': {
                 'fast': best_overall_trial.params['macd_fast'], 'slow': best_overall_trial.params['macd_slow'],
@@ -110,10 +110,8 @@ def main(n_jobs, n_trials):
             }
         }
         
-        # KORREKTUR: Verwende exakt diese Struktur für den finalen Backtest
         final_backtest_params = {**final_params_for_config, 'start_capital': best_overall_info['start_capital']}
         
-        # Lade die Daten für den finalen Backtest neu, um sicherzugehen
         final_data = load_data(best_overall_info['symbol'], best_overall_info['timeframe'], best_overall_info['start_date'], best_overall_info['end_date'])
         data_with_indicators = calculate_mbot_indicators(final_data.copy(), final_backtest_params)
         final_result = run_mbot_backtest(data_with_indicators.dropna(), final_backtest_params)
