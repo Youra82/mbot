@@ -49,18 +49,30 @@ case "$mode" in
             exit 1
         fi
 
-        # NEU: "Quality Gate" - Prüfen, ob die Ergebnisse von Stufe 1 brauchbar sind.
-        # Wir suchen nach einer "pnl"-Zeile, die NICHT den Strafwert -1000.0 enthält.
-        # Wenn wir keine solche Zeile finden, sind alle Ergebnisse schlecht.
-        if ! grep '"pnl":' "$CANDIDATES_FILE" | grep -v -- '-1000.0' > /dev/null; then
-            echo -e "\n${RED}---------------------------------------------------------------------------"
-            echo -e "ABBRUCH: Stufe 1 hat keine Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
-            echo -e "Alle getesteten Parameter waren unprofitabel oder haben zu selten gehandelt."
-            echo -e "Tipp: Versuchen Sie, die 'Mindestanzahl an Trades' zu senken oder einen längeren Zeitraum zu testen."
-            echo -e "---------------------------------------------------------------------------${NC}"
+        # NEUE, VERBESSERTE "Quality Gate" Logik
+        # Prüfen, ob profitable Kandidaten (PnL > 0) gefunden wurden.
+        if ! grep '"pnl":' "$CANDIDATES_FILE" | grep -v -- '"pnl": -' > /dev/null; then
+            # Wenn nicht, informativen Fehler ausgeben
+            if ! command -v jq &> /dev/null; then
+                # Fallback, falls jq nicht installiert ist
+                echo -e "\n${RED}---------------------------------------------------------------------------"
+                echo -e "ABBRUCH: Stufe 1 hat keine profitablen Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
+                echo -e "Tipp: Senken Sie die 'Mindestanzahl an Trades' oder testen Sie einen anderen Zeitraum."
+                echo -e "(Installieren Sie 'jq' für mehr Details: sudo apt-get install jq)"
+                echo -e "---------------------------------------------------------------------------${NC}"
+            else
+                # Mit jq die höchste gefundene Trade-Anzahl ermitteln
+                MAX_TRADES=$(jq '[.[] | .trades_count] | max' "$CANDIDATES_FILE")
+                echo -e "\n${RED}---------------------------------------------------------------------------"
+                echo -e "ABBRUCH: Stufe 1 hat keine profitablen Kandidaten gefunden, die die Mindestanzahl an Trades erreicht haben."
+                echo -e "Der beste Versuch hatte nur ${YELLOW}${MAX_TRADES}${RED} Trades."
+                echo -e "Tipp: Senken Sie die 'Mindestanzahl an Trades' oder testen Sie einen längeren Zeitraum."
+                echo -e "---------------------------------------------------------------------------${NC}"
+            fi
             deactivate
             exit 1
         fi
+
 
         echo -e "\n${YELLOW}--- VON STUFE 1 GEFUNDENE TOP KANDIDATEN ---${NC}"
         cat "$CANDIDATES_FILE"
