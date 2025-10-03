@@ -1,57 +1,3 @@
-import json
-import numpy as np
-import os
-import sys
-import argparse
-from multiprocessing import Pool
-from tqdm import tqdm
-
-from pymoo.core.problem import StarmapParallelization, Problem
-from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.optimize import minimize
-from pymoo.termination import get_termination
-from pymoo.core.callback import Callback
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from analysis.backtest import load_data, run_backtest
-from utilities.strategy_logic import calculate_macd_forecast_indicators
-
-HISTORICAL_DATA = None
-START_CAPITAL = 1000.0
-MINIMUM_TRADES = 10
-
-class TqdmCallback(Callback):
-    def __init__(self, pbar):
-        super().__init__()
-        self.pbar = pbar
-    def notify(self, algorithm):
-        self.pbar.update(1)
-
-class OptimizationProblem(Problem):
-    def __init__(self, **kwargs):
-        super().__init__(n_var=8, n_obj=2, n_constr=0,
-                         # fast, slow, signal, swing, sl_buf, up_%, low_%, impulse_len
-                         xl=[5,  20, 5,  10, 0.1, 75, 5,  20],
-                         xu=[25, 60, 20, 50, 2.0, 95, 25, 50], **kwargs)
-    def _evaluate(self, x, out, *args, **kwargs):
-        results = []
-        for ind in x:
-            params = {
-                'fast_len': int(ind[0]), 'slow_len': int(ind[1]), 'signal_len': int(ind[2]),
-                'swing_lookback': int(ind[3]), 'sl_buffer_pct': round(ind[4], 2),
-                'upper_percentile': int(ind[5]), 'lower_percentile': int(ind[6]),
-                'addons': { 'impulse_macd_filter': { 'enabled': True, 'lengthMA': int(ind[7]) }},
-                'max_memory': 50, 'forecast_len': 100, 'start_capital': START_CAPITAL, 'leverage': 5.0,
-                'start_date_str': self.start_date_str
-            }
-            data_with_indicators = calculate_macd_forecast_indicators(HISTORICAL_DATA.copy(), params)
-            result = run_backtest(data_with_indicators.dropna(), params)
-            pnl = result.get('total_pnl_pct', -1000)
-            drawdown = result.get('max_drawdown_pct', 1.0) * 100
-            if result['trades_count'] < MINIMUM_TRADES: pnl = -1001
-            results.append([-pnl, drawdown])
-        out["F"] = np.array(results)
-
 def main(n_procs, n_gen_default):
     print("\n--- [Stufe 1/2] Globale Suche mit Pymoo für mbot ---")
     
@@ -74,8 +20,17 @@ def main(n_procs, n_gen_default):
         for timeframe in timeframes_to_run:
             symbol = f"{symbol_short.upper()}/USDT:USDT"
             global HISTORICAL_DATA
+            
+            print(f"\nLade Daten für {symbol} ({timeframe})...")
             HISTORICAL_DATA = load_data(symbol, timeframe, start_date, end_date)
-            if HISTORICAL_DATA.empty: continue
+            
+            if HISTORICAL_DATA is None or HISTORICAL_DATA.empty:
+                print(f"FEHLER: Keine Daten für {symbol} im Zeitraum {start_date} bis {end_date} gefunden. Überspringe...")
+                continue
+            
+            # NEU: Feedback zur Datenmenge
+            print(f"Daten erfolgreich geladen: {len(HISTORICAL_DATA)} Kerzen von {HISTORICAL_DATA.index.min()} bis {HISTORICAL_DATA.index.max()}")
+
 
             print(f"\n===== Optimiere {symbol} auf {timeframe} für mbot =====")
             
@@ -114,10 +69,3 @@ def main(n_procs, n_gen_default):
     with open(output_file, 'w') as f:
         json.dump(all_champions, f, indent=4)
     print(f"\n--- Globale Suche beendet. Top-Kandidaten in '{output_file}' gespeichert. ---")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Stufe 1: Globale Parameter-Optimierung für mbot.")
-    parser.add_argument('--jobs', type=int, default=1, help='Anzahl der CPU-Kerne.')
-    parser.add_argument('--gen', type=int, default=50, help='Standard-Anzahl der Generationen.')
-    args = parser.parse_args()
-    main(n_procs=args.jobs, n_gen_default=args.gen)
