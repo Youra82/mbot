@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "1h"
+    },
+    "strategy": {
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "swing_lookback": 24,
+        "atr_period": 14,
+        "trend_filter": {
+            "enabled": true,
+            "period": 200
+        }
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "balance_fraction_pct": 10,
+        "sl_buffer_pct": 0.5,
+        "base_leverage": 5,
+        "max_leverage": 20,
+        "target_atr_pct": 2.5
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "development": {
+        "_comment": "Werte: 'none' (Live-Betrieb), 'LONG' (erzwingt Long), 'SHORT' (erzwingt Short)",
+        "force_trade_side": "none"
+    }
+}
