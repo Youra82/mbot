@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.bitget_futures import BitgetFutures
+# ### KORRIGIERT: Der Import-Name ist nun korrekt. ###
 from utilities.strategy_logic import calculate_macd_indicators
 
 def load_data(symbol, timeframe, start_date_str, end_date_str):
@@ -53,6 +54,7 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
         print(f"Fehler beim Daten-Download für {symbol} ({timeframe}): {e}")
         return pd.DataFrame()
 
+# ### KORRIGIERT: Der Funktionsname ist nun konsistent. ###
 def run_macd_backtest(data, params):
     base_leverage = params.get('base_leverage', 10.0)
     target_atr_pct = params.get('target_atr_pct', 1.5)
