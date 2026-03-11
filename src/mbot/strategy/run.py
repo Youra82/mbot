@@ -6,6 +6,12 @@ Modi:
   --mode signal  : Signal pruefen, Trade platzieren wenn Signal vorhanden
   --mode check   : Offene Position pruefen, Global State loeschen falls geschlossen
 
+Signal-Parameter werden aus der generierten Config-Datei geladen:
+  src/mbot/strategy/configs/config_BTCUSDTUSDT_15m_momentum.json
+  (erstellt von run_pipeline.sh via optimizer.py)
+
+Risiko-Parameter (Hebel, SL, TP) kommen weiterhin aus settings.json.
+
 Wird vom master_runner.py aufgerufen.
 """
 
@@ -75,9 +81,27 @@ def run_for_account(account: dict, telegram_config: dict,
     """
     logger.info(f"=== mbot Start | {symbol} ({timeframe}) | Modus: {mode} ===")
 
-    exchange       = Exchange(account)
-    risk_config    = settings.get('risk', {})
-    signal_config  = settings.get('signal', {})
+    exchange    = Exchange(account)
+    risk_config = settings.get('risk', {})
+
+    # Signal-Parameter aus generierter Config-Datei laden (erstellt von optimizer.py)
+    safe_name   = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
+    config_path = os.path.join(
+        PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs',
+        f'config_{safe_name}_momentum.json'
+    )
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as cf:
+            loaded_cfg = json.load(cf)
+        signal_config = loaded_cfg.get('signal', {})
+        logger.info(f"Config geladen: config_{safe_name}_momentum.json "
+                    f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}%)")
+    else:
+        # Fallback: Signal-Defaults aus settings.json
+        signal_config = settings.get('signal', {})
+        logger.warning(f"Keine Config-Datei gefunden fuer {symbol} ({timeframe}). "
+                       f"Verwende Defaults aus settings.json. "
+                       f"Bitte zuerst run_pipeline.sh ausfuehren.")
 
     if mode == 'check':
         # --- Positions-Check: Ist der Trade noch offen? ---
