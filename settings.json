@@ -1,10 +1,52 @@
 {
     "live_trading_settings": {
+        "max_open_positions": 1,
+        "use_auto_optimizer_results": false,
         "active_strategies": [
-            {"symbol": "BTC/USDT:USDT", "timeframe": "15m", "active": true},
-            {"symbol": "ETH/USDT:USDT", "timeframe": "15m", "active": true},
-            {"symbol": "SOL/USDT:USDT", "timeframe": "15m", "active": true}
+            {
+                "symbol": "BTC/USDT:USDT",
+                "timeframe": "15m",
+                "active": true
+            },
+            {
+                "symbol": "ETH/USDT:USDT",
+                "timeframe": "15m",
+                "active": true
+            },
+            {
+                "symbol": "SOL/USDT:USDT",
+                "timeframe": "15m",
+                "active": true
+            }
         ]
+    },
+    "optimization_settings": {
+        "enabled": true,
+        "schedule": {
+            "_info": "day_of_week: 0=Montag, 6=Sonntag | hour: 0-23 (24h Format)",
+            "day_of_week": 6,
+            "hour": 15,
+            "minute": 0,
+            "interval": {
+                "_info": "Einheit: minutes | hours | days | weeks",
+                "value": 7,
+                "unit": "days"
+            }
+        },
+        "symbols_to_optimize": "auto",
+        "timeframes_to_optimize": "auto",
+        "lookback_days": "auto",
+        "start_capital": 1000,
+        "cpu_cores": -1,
+        "num_trials": 200,
+        "mode": "strict",
+        "constraints": {
+            "max_drawdown_pct": 30,
+            "min_win_rate_pct": 50,
+            "min_pnl_pct": 0
+        },
+        "auto_clear_cache_days": 0,
+        "send_telegram_on_completion": true
     },
     "risk": {
         "leverage": 20,

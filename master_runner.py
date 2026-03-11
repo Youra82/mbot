@@ -3,8 +3,11 @@
 mbot Master Runner
 
 Logik:
-  1. Liest settings.json -> aktive Symbole
-  2. Liest global_state.json -> ist gerade ein Symbol aktiv?
+  1. Startet Auto-Optimizer-Scheduler im Hintergrund (prueft ob Optimierung faellig)
+  2. Liest settings.json -> aktive Symbole
+     - use_auto_optimizer_results=true  -> Symbole aus Config-Dateien in configs/
+     - use_auto_optimizer_results=false -> Symbole aus active_strategies in settings.json
+  3. Liest global_state.json -> ist gerade ein Symbol aktiv?
 
   FALL A: Ein Symbol ist aktiv (offener Trade)
     -> Nur fuer dieses Symbol 'run.py --mode check' ausfuehren
@@ -45,6 +48,8 @@ logging.basicConfig(
 
 GLOBAL_STATE_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
 RUN_SCRIPT        = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'run.py')
+CONFIGS_DIR       = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
+AUTO_OPT_SCRIPT   = os.path.join(PROJECT_ROOT, 'auto_optimizer_scheduler.py')
 
 
 def read_global_state() -> dict:
@@ -55,6 +60,28 @@ def read_global_state() -> dict:
             return json.load(f)
     except Exception:
         return {'active_symbol': None, 'active_timeframe': None}
+
+
+def load_strategies_from_configs() -> list:
+    """Laedt aktive Strategien aus den generierten Config-Dateien."""
+    if not os.path.exists(CONFIGS_DIR):
+        return []
+    strategies = []
+    for fn in sorted(os.listdir(CONFIGS_DIR)):
+        if not fn.startswith('config_') or not fn.endswith('_momentum.json'):
+            continue
+        path = os.path.join(CONFIGS_DIR, fn)
+        try:
+            with open(path, 'r') as f:
+                cfg = json.load(f)
+            market = cfg.get('market', {})
+            symbol = market.get('symbol')
+            tf     = market.get('timeframe')
+            if symbol and tf:
+                strategies.append({'symbol': symbol, 'timeframe': tf, 'active': True})
+        except Exception as e:
+            logging.warning(f"Fehler beim Lesen von {fn}: {e}")
+    return strategies
 
 
 def run_strategy(python_exe: str, symbol: str, timeframe: str, mode: str, wait: bool = True):
@@ -82,10 +109,21 @@ def main():
     # --- Python-Interpreter ---
     python_exe = os.path.join(PROJECT_ROOT, '.venv', 'bin', 'python3')
     if not os.path.exists(python_exe):
-        python_exe = os.path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe')  # Windows
+        python_exe = os.path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe')
     if not os.path.exists(python_exe):
-        python_exe = sys.executable  # Fallback: aktueller Interpreter
+        python_exe = sys.executable
         logging.warning(f"Kein .venv gefunden, verwende: {python_exe}")
+
+    # --- Auto-Optimizer im Hintergrund pruefen ---
+    if os.path.exists(AUTO_OPT_SCRIPT):
+        logging.info("[Auto-Optimizer] Pruefe ob Optimierung faellig...")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'auto_optimizer_trigger.log'), 'a') as log_f:
+            subprocess.Popen(
+                [python_exe, AUTO_OPT_SCRIPT],
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+            )
 
     # --- Settings laden ---
     try:
@@ -104,11 +142,23 @@ def main():
         logging.critical("Keine 'mbot'-Accounts in secret.json gefunden.")
         return
 
-    active_strategies = settings.get('live_trading_settings', {}).get('active_strategies', [])
-    active_strategies = [s for s in active_strategies if isinstance(s, dict) and s.get('active')]
+    live_settings         = settings.get('live_trading_settings', {})
+    use_auto_optimizer    = live_settings.get('use_auto_optimizer_results', False)
+
+    if use_auto_optimizer:
+        logging.info("Modus: Auto-Optimizer. Lese Strategien aus Config-Dateien...")
+        active_strategies = load_strategies_from_configs()
+        if not active_strategies:
+            logging.warning("Keine Config-Dateien gefunden. Fallback auf settings.json.")
+            active_strategies = [s for s in live_settings.get('active_strategies', [])
+                                  if isinstance(s, dict) and s.get('active')]
+    else:
+        logging.info("Modus: Manuell. Lese Strategien aus settings.json...")
+        active_strategies = [s for s in live_settings.get('active_strategies', [])
+                              if isinstance(s, dict) and s.get('active')]
 
     if not active_strategies:
-        logging.warning("Keine aktiven Strategien in settings.json.")
+        logging.warning("Keine aktiven Strategien gefunden.")
         return
 
     logging.info(f"Aktive Strategien: {len(active_strategies)}")
@@ -125,7 +175,6 @@ def main():
         logging.info(f"Aktiver Trade: {active_symbol} ({active_timeframe}) -> Position pruefen")
         run_strategy(python_exe, active_symbol, active_timeframe, mode='check', wait=True)
 
-        # Nach dem Check schauen ob der State geloescht wurde
         state_after = read_global_state()
         if state_after.get('active_symbol') is None:
             logging.info(f"Trade fuer {active_symbol} wurde geschlossen. Bereit fuer neues Signal.")
@@ -151,7 +200,6 @@ def main():
         logging.info(f"--- Signal-Check: {symbol} ({timeframe}) ---")
         run_strategy(python_exe, symbol, timeframe, mode='signal', wait=True)
 
-        # Pruefen ob dieser Durchlauf einen Trade ausgeloest hat
         state_after = read_global_state()
         if state_after.get('active_symbol') is not None:
             logging.info(
@@ -160,7 +208,7 @@ def main():
             )
             break
 
-        time.sleep(1)  # Kurze Pause zwischen Symbolen
+        time.sleep(1)
 
     logging.info("Master Runner beendet.")
 
