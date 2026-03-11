@@ -50,7 +50,8 @@ read -p "Startdatum (JJJJ-MM-TT) oder 'a' fuer Automatik [Standard: a]: " START_
 
 read -p "Enddatum (JJJJ-MM-TT) [Standard: Heute]: " END_DATE; END_DATE=${END_DATE:-$(date +%F)}
 read -p "Startkapital in USDT [Standard: 1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
-read -p "CPU-Kerne [Standard: -1 fuer alle]: " N_CORES; N_CORES=${N_CORES:--1}
+echo -e "${YELLOW}  Hinweis: Bei SQLite-Storage ist 1 schneller als -1 (kein Lock-Contention)${NC}"
+read -p "CPU-Kerne [Standard: 1]: " N_CORES; N_CORES=${N_CORES:-1}
 read -p "Anzahl Trials [Standard: 200]: " N_TRIALS; N_TRIALS=${N_TRIALS:-200}
 
 echo -e "\n${YELLOW}Waehle einen Optimierungs-Modus:${NC}"

@@ -37,7 +37,7 @@
         "timeframes_to_optimize": "auto",
         "lookback_days": "auto",
         "start_capital": 1000,
-        "cpu_cores": -1,
+        "cpu_cores": 1,
         "num_trials": 200,
         "mode": "strict",
         "constraints": {

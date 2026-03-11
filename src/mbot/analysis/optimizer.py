@@ -97,7 +97,8 @@ def main():
     parser.add_argument('--end_date',      type=str, required=True)
     parser.add_argument('--start_capital', type=float, default=1000.0)
     parser.add_argument('--trials',        type=int,   default=200)
-    parser.add_argument('--jobs',          type=int,   default=-1)
+    parser.add_argument('--jobs',          type=int,   default=1,
+                        help='Parallele Optuna-Jobs (bei SQLite-Storage: 1 empfohlen!)')
     parser.add_argument('--max_drawdown',  type=float, default=30.0,
                         help='Maximaler Drawdown in % (z.B. 30)')
     parser.add_argument('--min_win_rate',  type=float, default=50.0,
