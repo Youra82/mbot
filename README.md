@@ -1,7 +1,7 @@
 # mbot — Momentum Breakout Trading Bot
 
 Ein regelbasierter Trading-Bot, der auf saubere Momentum-Ausbrüche wartet und diese mit 20x Hebel mitreitet.
-Kein Machine Learning, keine Black-Box — deterministisch, transparent, sofort einsatzbereit.
+Deterministisch und transparent — mit integrierter Backtest-Pipeline zur Validierung der Signal-Parameter vor dem Live-Einsatz.
 
 > **Disclaimer:** Diese Software ist experimentell und dient ausschließlich Forschungszwecken.
 > Der Handel mit Kryptowährungen birgt erhebliche finanzielle Risiken. Nutzung auf eigene Gefahr.
