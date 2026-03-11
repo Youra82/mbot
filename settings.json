@@ -1,0 +1,25 @@
+{
+    "live_trading_settings": {
+        "active_strategies": [
+            {"symbol": "BTC/USDT:USDT", "timeframe": "15m", "active": true},
+            {"symbol": "ETH/USDT:USDT", "timeframe": "15m", "active": true},
+            {"symbol": "SOL/USDT:USDT", "timeframe": "15m", "active": true}
+        ]
+    },
+    "risk": {
+        "leverage": 20,
+        "margin_mode": "isolated",
+        "sl_account_pct": 2.0,
+        "tp_price_pct": 1.0
+    },
+    "signal": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "volume_ma_period": 20,
+        "min_body_ratio": 0.55,
+        "min_volume_multiplier": 1.4,
+        "rsi_period": 14,
+        "rsi_max_long": 75,
+        "rsi_min_short": 25
+    }
+}

@@ -1,0 +1,247 @@
+# tests/test_workflow.py
+"""
+mbot Live-Workflow-Test
+
+Testet den kompletten Handelszyklus auf Bitget mit PEPE (kleines Minimum).
+Benoetigt secret.json mit gueltigen API-Keys.
+"""
+
+import pytest
+import os
+import sys
+import json
+import logging
+import time
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
+
+from mbot.utils.exchange import Exchange
+from mbot.utils.trade_manager import (
+    read_global_state, write_global_state, clear_global_state,
+    calculate_sl_tp_prices, calculate_contracts, _empty_state,
+)
+
+
+# ============================================================
+# Fixtures
+# ============================================================
+
+@pytest.fixture(scope='module')
+def test_setup():
+    print('\n--- mbot Live-Workflow-Test ---')
+
+    secret_path = os.path.join(PROJECT_ROOT, 'secret.json')
+    if not os.path.exists(secret_path):
+        pytest.skip('secret.json nicht gefunden. Ueberspringe Live-Test.')
+
+    with open(secret_path, 'r') as f:
+        secrets = json.load(f)
+
+    accounts = secrets.get('mbot', [])
+    if not accounts:
+        pytest.skip("Keine 'mbot'-Accounts in secret.json. Ueberspringe Live-Test.")
+
+    try:
+        exchange = Exchange(accounts[0])
+        if not exchange.markets:
+            pytest.fail('Exchange konnte nicht initialisiert werden.')
+    except Exception as e:
+        pytest.fail(f'Exchange-Fehler: {e}')
+
+    test_logger = logging.getLogger('test-mbot')
+    test_logger.setLevel(logging.INFO)
+    if not test_logger.handlers:
+        test_logger.addHandler(logging.StreamHandler(sys.stdout))
+
+    symbol    = 'PEPE/USDT:USDT'  # Kleine Mindestgrösse
+    timeframe = '15m'
+    leverage  = 20
+    margin_mode = 'isolated'
+
+    # Ausgangszustand bereinigen
+    print(f'[Setup] Bereinige Ausgangszustand fuer {symbol}...')
+    try:
+        exchange.cancel_all_orders_for_symbol(symbol)
+        time.sleep(1)
+        positions = exchange.fetch_open_positions(symbol)
+        if positions:
+            pos  = positions[0]
+            side = 'sell' if pos['side'] == 'long' else 'buy'
+            amt  = float(pos.get('contracts') or pos.get('contractSize', 0))
+            if amt > 0:
+                exchange.place_market_order(symbol, side, amt, reduce=True)
+                time.sleep(3)
+        print('[Setup] Ausgangszustand ist sauber.')
+    except Exception as e:
+        pytest.fail(f'Fehler beim Setup-Bereinigen: {e}')
+
+    # Global State zuruecksetzen
+    clear_global_state()
+
+    yield exchange, symbol, timeframe, leverage, margin_mode, test_logger
+
+    # Teardown
+    print('\n[Teardown] Raeume nach dem Test auf...')
+    try:
+        exchange.cancel_all_orders_for_symbol(symbol)
+        time.sleep(2)
+        positions = exchange.fetch_open_positions(symbol)
+        if positions:
+            pos  = positions[0]
+            side = 'sell' if pos['side'] == 'long' else 'buy'
+            amt  = float(pos.get('contracts') or pos.get('contractSize', 0))
+            if amt > 0:
+                exchange.place_market_order(symbol, side, amt, reduce=True)
+                time.sleep(3)
+        exchange.cancel_all_orders_for_symbol(symbol)
+        print('[Teardown] Abgeschlossen.')
+    except Exception as e:
+        print(f'FEHLER beim Teardown: {e}')
+    finally:
+        clear_global_state()
+
+
+# ============================================================
+# Unit Tests (kein API-Zugriff nötig)
+# ============================================================
+
+def test_sl_tp_calculation():
+    """Prueft SL/TP-Berechnung: 2% Kontoverlust mit 20x = 0.1% Preis"""
+    entry    = 100.0
+    leverage = 20
+    sl_acc   = 2.0
+    tp_prc   = 1.0
+
+    sl_long, tp_long = calculate_sl_tp_prices(entry, 'long', leverage, sl_acc, tp_prc)
+    assert abs(sl_long - 99.9) < 0.001,  f'SL Long erwartet 99.9, got {sl_long}'
+    assert abs(tp_long - 101.0) < 0.001, f'TP Long erwartet 101.0, got {tp_long}'
+
+    sl_short, tp_short = calculate_sl_tp_prices(entry, 'short', leverage, sl_acc, tp_prc)
+    assert abs(sl_short - 100.1) < 0.001, f'SL Short erwartet 100.1, got {sl_short}'
+    assert abs(tp_short - 99.0) < 0.001,  f'TP Short erwartet 99.0, got {tp_short}'
+
+    print(f'SL/TP-Berechnung korrekt: Long SL={sl_long}, TP={tp_long} | Short SL={sl_short}, TP={tp_short}')
+
+
+def test_global_state_read_write():
+    """Prueft Global State Lesen/Schreiben/Loeschen"""
+    clear_global_state()
+    state = read_global_state()
+    assert state.get('active_symbol') is None
+
+    write_global_state({
+        'active_symbol':    'BTC/USDT:USDT',
+        'active_timeframe': '15m',
+        'active_since':     '2026-01-01T00:00:00Z',
+        'entry_price':      50000.0,
+        'side':             'long',
+        'sl_price':         49950.0,
+        'tp_price':         50500.0,
+        'contracts':        0.04,
+    })
+    state = read_global_state()
+    assert state['active_symbol']    == 'BTC/USDT:USDT'
+    assert state['side']             == 'long'
+    assert state['entry_price']      == 50000.0
+
+    clear_global_state()
+    state = read_global_state()
+    assert state.get('active_symbol') is None
+    print('Global State Lesen/Schreiben/Loeschen: OK')
+
+
+def test_contracts_calculation():
+    """Prueft Kontraktberechnung: volles Kapital mit Hebel"""
+    balance  = 100.0
+    leverage = 20
+    price    = 50000.0
+    min_amt  = 0.001
+
+    contracts = calculate_contracts(balance, leverage, price, min_amt)
+    expected  = (balance * leverage) / price  # 100 * 20 / 50000 = 0.04
+    assert abs(contracts - expected) < 1e-6, f'Erwartet {expected}, got {contracts}'
+    print(f'Kontraktberechnung korrekt: {contracts:.4f} Kontrakte fuer {balance} USDT * {leverage}x @ {price}')
+
+
+# ============================================================
+# Live Test (erfordert secret.json)
+# ============================================================
+
+def test_full_mbot_workflow_on_bitget(test_setup):
+    """Vollstaendiger Live-Test: Entry + SL/TP + Schliessen auf Bitget (PEPE)"""
+    exchange, symbol, timeframe, leverage, margin_mode, logger = test_setup
+
+    bal = exchange.fetch_balance_usdt()
+    print(f'\nVerfuegbares Guthaben: {bal:.4f} USDT')
+
+    if bal < 5.0:
+        pytest.skip(f'Zu wenig Guthaben ({bal:.2f} USDT < 5 USDT) fuer Live-Test.')
+
+    # --- Margin + Hebel setzen ---
+    exchange.set_margin_mode(symbol, margin_mode)
+    exchange.set_leverage(symbol, leverage, margin_mode)
+    time.sleep(1)
+
+    # --- Entry berechnen ---
+    min_amount  = exchange.fetch_min_amount_tradable(symbol)
+    ticker      = exchange.exchange.fetch_ticker(symbol)
+    price       = float(ticker['last'])
+    contracts   = calculate_contracts(bal, leverage, price, min_amount)
+    notional    = contracts * price
+
+    print(f'[Schritt 1/3] Entry: LONG {contracts:.2f} PEPE @ ~{price:.6f} | Notional: {notional:.2f} USDT')
+
+    # --- Entry platzieren ---
+    try:
+        entry_order = exchange.place_market_order(symbol, 'buy', contracts)
+    except Exception as e:
+        pytest.fail(f'Entry fehlgeschlagen: {e}')
+
+    entry_price = float(entry_order.get('average') or entry_order.get('price') or price)
+    filled      = float(entry_order.get('filled')  or entry_order.get('amount') or contracts)
+    print(f'Entry ausgefuehrt: {filled:.2f} PEPE @ {entry_price:.6f}')
+    time.sleep(2)
+
+    # --- SL/TP berechnen und platzieren ---
+    sl_price, tp_price = calculate_sl_tp_prices(entry_price, 'long', leverage, 2.0, 1.0)
+    print(f'[Schritt 2/3] SL={sl_price:.6f} | TP={tp_price:.6f}')
+
+    try:
+        exchange.place_trigger_market_order(symbol, 'sell', filled, sl_price, reduce=True)
+        time.sleep(1)
+        exchange.place_trigger_market_order(symbol, 'sell', filled, tp_price, reduce=True)
+    except Exception as e:
+        pytest.fail(f'SL/TP-Platzierung fehlgeschlagen: {e}')
+
+    time.sleep(3)
+
+    # --- Position pruefen ---
+    positions = exchange.fetch_open_positions(symbol)
+    assert positions, f'Position nicht gefunden nach Entry (Guthaben war {bal:.2f} USDT)'
+    print(f'Position offen: {positions[0]["side"].upper()} | Kontrakte: {positions[0].get("contracts")}')
+
+    # --- Position sauber schliessen ---
+    print('[Schritt 3/3] Schliesse Position...')
+    exchange.cancel_all_orders_for_symbol(symbol)
+    time.sleep(2)
+
+    pos       = positions[0]
+    amt       = abs(float(pos.get('contracts') or pos.get('contractSize', 0)))
+    close_ord = exchange.place_market_order(symbol, 'sell', amt, reduce=True)
+    assert close_ord, 'Schliessen fehlgeschlagen!'
+    time.sleep(4)
+
+    exchange.cancel_all_orders_for_symbol(symbol)
+    time.sleep(2)
+
+    # --- Finale Checks ---
+    final_pos    = exchange.fetch_open_positions(symbol)
+    final_orders = exchange.exchange.fetch_open_orders(
+        symbol, params={'stop': True, 'productType': 'USDT-FUTURES'}
+    )
+
+    assert len(final_pos) == 0,    f'Position sollte geschlossen sein, aber noch offen: {len(final_pos)}'
+    assert len(final_orders) == 0, f'Trigger-Orders sollten leer sein: {len(final_orders)}'
+
+    print('\n--- WORKFLOW-TEST ERFOLGREICH ---')
