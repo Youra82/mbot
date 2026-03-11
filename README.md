@@ -36,26 +36,39 @@ Nach TP oder SL beginnt die Lauerjagd von vorne.
 ```
 mbot/
 ├── master_runner.py                  # Cronjob-Orchestrator (Global State Management)
-├── run_pipeline.sh                   # Interaktiver Backtest (Signal auf historischen Daten)
-├── show_results.sh                   # Letzten Backtest anzeigen (Übersicht + Trade-Liste)
+├── auto_optimizer_scheduler.py       # Auto-Optimizer Zeitplan-Prüfer
+├── run_pipeline.sh                   # Optuna-Optimierung + Config-Training
+├── show_results.sh                   # Analyse-Dashboard (4 Modi)
+├── push_configs.sh                   # Trainierte Configs auf GitHub pushen
 ├── run_tests.sh                      # Pytest-Sicherheitscheck
 ├── update.sh                         # Git-Update (sichert secret.json)
 ├── install.sh                        # Erstinstallation
-├── settings.json                     # Konfiguration (Symbole, Risiko, Signal-Parameter)
+├── settings.json                     # Konfiguration (Symbole, Risiko, Optimierung)
 ├── secret.json                       # API-Keys & Telegram (nicht in Git)
 ├── artifacts/
-│   └── tracker/
-│       └── global_state.json         # Aktiver Trade-Status (nicht in Git)
+│   ├── tracker/
+│   │   └── global_state.json         # Aktiver Trade-Status (nicht in Git)
+│   ├── results/
+│   │   └── last_optimizer_run.json   # Letzter Optimizer-Lauf (nicht in Git)
+│   ├── charts/                       # Generierte HTML-Charts
+│   ├── db/
+│   │   └── optuna_studies_mbot.db    # Optuna SQLite Datenbank
+│   └── cache/
+│       └── .last_optimization_run    # Timestamp letzter Auto-Optimizer-Lauf
 │
 └── src/mbot/
     ├── strategy/
     │   ├── momentum_logic.py         # Bollinger-Breakout Signal-Erkennung
-    │   └── run.py                    # Pro-Symbol-Runner (signal | check Modus)
+    │   ├── run.py                    # Pro-Symbol-Runner (signal | check Modus)
+    │   └── configs/
+    │       └── config_*_momentum.json  # Optimierte Signal-Configs pro Symbol/TF
     │
     ├── analysis/
     │   ├── backtester.py             # Historische Simulation
-    │   ├── run_backtest_cli.py       # CLI-Wrapper für run_pipeline.sh
-    │   └── show_results.py           # Report: PnL, Win-Rate, MaxDD, Trade-Liste
+    │   ├── optimizer.py              # Optuna Signal-Parameter Optimizer
+    │   ├── portfolio_simulator.py    # Portfolio-Simulation (gemeinsamer Kapitalpool)
+    │   ├── interactive_chart.py      # Plotly Candlestick + Trade-Marker Charts
+    │   └── show_results.py           # 4-Modus Analyse-Dashboard
     │
     └── utils/
         ├── exchange.py               # Bitget CCXT Wrapper
@@ -76,7 +89,7 @@ BB-Lower = SMA(20) − 2.0 × StdDev(20)
 BB-Width = (BB-Upper − BB-Lower) / BB-Mid
 ```
 
-**LONG-Signal** — alle 4 Bedingungen müssen erfüllt sein:
+**LONG-Signal** — alle Bedingungen müssen erfüllt sein:
 ```
 close > BB-Upper          ← Ausbruch über Oberband
 close > open              ← Bullische Kerze
@@ -144,6 +157,12 @@ artifacts/tracker/global_state.json
 ```
 master_runner.py startet (Cronjob)
     │
+    ├── [Auto-Optimizer] Scheduler im Hintergrund prüfen
+    │
+    ├── use_auto_optimizer_results = true?
+    │       ├── JA  → Symbole aus src/mbot/strategy/configs/ laden
+    │       └── NEIN → Symbole aus active_strategies in settings.json
+    │
     ├── global_state.active_symbol gesetzt?
     │       │
     │       ├── JA  → run.py --mode check
@@ -155,8 +174,6 @@ master_runner.py startet (Cronjob)
     │                   Kein Signal? → nächstes Symbol prüfen
 ```
 
-Beim nächsten Cronjob-Lauf ist entweder ein Trade aktiv (→ nur prüfen) oder alle Symbole werden erneut auf Signal geprüft.
-
 ---
 
 ## Konfiguration (`settings.json`)
@@ -164,11 +181,35 @@ Beim nächsten Cronjob-Lauf ist entweder ein Trade aktiv (→ nur prüfen) oder 
 ```json
 {
     "live_trading_settings": {
+        "max_open_positions": 1,
+        "use_auto_optimizer_results": false,
         "active_strategies": [
             {"symbol": "BTC/USDT:USDT", "timeframe": "15m", "active": true},
             {"symbol": "ETH/USDT:USDT", "timeframe": "15m", "active": true},
             {"symbol": "SOL/USDT:USDT", "timeframe": "15m", "active": true}
         ]
+    },
+    "optimization_settings": {
+        "enabled": true,
+        "schedule": {
+            "day_of_week": 6,
+            "hour": 15,
+            "minute": 0,
+            "interval": {"value": 7, "unit": "days"}
+        },
+        "symbols_to_optimize": "auto",
+        "timeframes_to_optimize": "auto",
+        "lookback_days": "auto",
+        "start_capital": 1000,
+        "cpu_cores": -1,
+        "num_trials": 200,
+        "mode": "strict",
+        "constraints": {
+            "max_drawdown_pct": 30,
+            "min_win_rate_pct": 50,
+            "min_pnl_pct": 0
+        },
+        "send_telegram_on_completion": true
     },
     "risk": {
         "leverage":       20,
@@ -177,30 +218,32 @@ Beim nächsten Cronjob-Lauf ist entweder ein Trade aktiv (→ nur prüfen) oder 
         "tp_price_pct":   1.0
     },
     "signal": {
-        "bb_period":              20,
-        "bb_std":                 2.0,
-        "volume_ma_period":       20,
-        "min_body_ratio":         0.55,
-        "min_volume_multiplier":  1.4,
-        "rsi_period":             14,
-        "rsi_max_long":           75,
-        "rsi_min_short":          25
+        "bb_period":             20,
+        "bb_std":                2.0,
+        "volume_ma_period":      20,
+        "min_body_ratio":        0.55,
+        "min_volume_multiplier": 1.4,
+        "rsi_period":            14,
+        "rsi_max_long":          75,
+        "rsi_min_short":         25
     }
 }
 ```
 
 | Parameter | Erklärung |
 |---|---|
+| `max_open_positions` | Immer 1 — mbot handelt nur einen Trade gleichzeitig. |
+| `use_auto_optimizer_results` | `true` → Symbole aus trainierten Config-Dateien; `false` → manuelle Liste. |
 | `active_strategies` | Liste der Symbole + Timeframes. Wer zuerst signalisiert, tradet. |
+| `optimization_settings.enabled` | Auto-Optimizer aktivieren/deaktivieren. |
+| `optimization_settings.schedule` | Wann der Auto-Optimizer läuft (Tag, Uhrzeit, Intervall). |
+| `optimization_settings.mode` | `strict` = profitabel & sicher; `best_profit` = maximaler PnL. |
 | `leverage` | Hebel (Standard: 20). |
 | `sl_account_pct` | Maximaler Kontoverlust pro Trade in % (Standard: 2.0). |
 | `tp_price_pct` | Take-Profit als Preisbewegung in % (Standard: 1.0). |
-| `bb_period` | Bollinger Bands Periode (Standard: 20). |
-| `bb_std` | Standardabweichungen für BB-Breite (Standard: 2.0). |
+| `bb_period` | Bollinger Bands Periode (Fallback wenn keine Config vorhanden). |
 | `min_body_ratio` | Mindest-Kerzenkörper als Anteil der Gesamtrange (Standard: 0.55 = 55%). |
 | `min_volume_multiplier` | Volumen muss X-faches des MA sein (Standard: 1.4). |
-| `rsi_max_long` | RSI-Obergrenze für Long-Entries — kein Chasing bei Überkauf (Standard: 75). |
-| `rsi_min_short` | RSI-Untergrenze für Short-Entries (Standard: 25). |
 
 ---
 
@@ -249,31 +292,17 @@ nano secret.json
 
 ## Workflow
 
-#### 1. Symbole und Timeframes konfigurieren
-
-```bash
-nano settings.json
-```
-
-Empfohlene Timeframes für den Momentum-Bot:
-
-| Timeframe | Charakter | Trades/Woche (ca.) |
-|---|---|---|
-| `5m` | Sehr aktiv, mehr Fehlsignale | 20–50 |
-| `15m` | Gutes Gleichgewicht (Standard) | 5–15 |
-| `1h` | Seltener, zuverlässiger | 1–5 |
-
-#### 2. Backtest durchführen
+#### 1. Signal-Parameter trainieren (Optimizer)
 
 ```bash
 ./run_pipeline.sh
 ```
 
-Interaktive Eingabe: Symbole, Timeframes, Zeitraum, Startkapital.
-Die Pipeline lädt historische OHLCV-Daten von Bitget, simuliert alle Signale und zeigt Ergebnisse.
-Optional: Getestete Symbole direkt in `settings.json` eintragen.
+Interaktive Eingabe: Symbole, Timeframes, Zeitraum, Startkapital, Anzahl Trials.
+Optuna optimiert BB/Volumen/RSI-Parameter für jedes Symbol/TF-Paar und speichert die besten Configs in `src/mbot/strategy/configs/`.
+Optional: Optimierte Strategien direkt in `settings.json` eintragen.
 
-#### 3. Ergebnisse analysieren
+#### 2. Ergebnisse analysieren
 
 ```bash
 ./show_results.sh
@@ -281,8 +310,18 @@ Optional: Getestete Symbole direkt in `settings.json` eintragen.
 
 | Modus | Funktion |
 |---|---|
-| **1) Zusammenfassung** | Übersicht: Trades, Win-Rate, PnL, MaxDD, Endkapital pro Symbol/TF |
-| **2) Detail-Ansicht** | Komplette Trade-Liste mit Entry/Exit/PnL pro Trade |
+| **1) Einzel-Analyse** | Jede Strategie isoliert backtesten — Trades, Win-Rate, PnL, MaxDD |
+| **2) Manuelle Portfolio-Simulation** | Eigene Strategieauswahl, gemeinsamer Kapitalpool |
+| **3) Auto Portfolio-Optimierung** | Bot findet das beste Strategie-Team unter Drawdown-Constraint |
+| **4) Interaktive Charts** | Plotly Candlestick + BB-Bands + Entry/Exit-Marker + Equity-Kurve als HTML |
+
+#### 3. Configs auf GitHub pushen (optional, für VPS-Deployment)
+
+```bash
+./push_configs.sh
+```
+
+Staged nur die generierten Config-Dateien, erstellt einen Commit und pusht auf `origin/main`.
 
 #### 4. Tests laufen lassen
 
@@ -290,13 +329,14 @@ Optional: Getestete Symbole direkt in `settings.json` eintragen.
 ./run_tests.sh
 ```
 
-Führt Unit-Tests (SL/TP-Kalkulation, Global State) und einen Live-Workflow-Test auf Bitget mit PEPE (kleines Mindestkapital) aus.
+Führt Unit-Tests (SL/TP-Kalkulation, Global State) und einen Live-Workflow-Test auf Bitget durch.
 
 #### 5. Live schalten
 
 ```bash
 nano settings.json
 # active: true setzen für gewünschte Symbole
+# use_auto_optimizer_results: true → trainierte Configs verwenden
 ```
 
 #### 6. Cronjob einrichten
@@ -313,10 +353,37 @@ crontab -e
 2 * * * * cd /root/mbot && .venv/bin/python3 master_runner.py >> /root/mbot/logs/cron.log 2>&1
 ```
 
-> Das `flock`-Kommando kann verwendet werden, um parallele Starts zu verhindern:
+> Mit `flock` parallele Starts verhindern:
 > ```
 > */5 * * * * /usr/bin/flock -n /root/mbot/mbot.lock /bin/sh -c "cd /root/mbot && .venv/bin/python3 master_runner.py >> /root/mbot/logs/cron.log 2>&1"
 > ```
+
+---
+
+## Auto-Optimizer
+
+Der `auto_optimizer_scheduler.py` wird von `master_runner.py` bei jedem Cronjob-Lauf im Hintergrund aufgerufen. Er prüft ob eine Optimierung fällig ist und startet sie bei Bedarf automatisch.
+
+```bash
+# Manuell erzwingen (ignoriert Zeitplan):
+.venv/bin/python3 auto_optimizer_scheduler.py --force
+
+# Protokoll ansehen:
+tail -f logs/auto_optimizer_trigger.log
+```
+
+**Ablauf:**
+```
+Cronjob → master_runner.py
+    └── auto_optimizer_scheduler.py (Hintergrund)
+            ├── Zeitplan fällig? (z.B. samstags 15:00 oder alle 7 Tage)
+            │       NEIN → sofort beenden
+            │       JA  → .optimization_in_progress Lock setzen
+            │               Telegram: "Optimizer gestartet"
+            │               optimizer.py für alle aktiven Symbole/TF starten
+            │               Telegram: Ergebniszusammenfassung senden
+            │               Lock löschen, Timestamp aktualisieren
+```
 
 ---
 
@@ -328,14 +395,14 @@ crontab -e
 # Cronjob-Log live verfolgen
 tail -f logs/cron.log
 
-# Einzelnes Symbol
-tail -n 100 logs/mbot_BTCUSDTUSDT_15m.log
-
-# Nach Fehlern suchen
-grep -i "ERROR" logs/mbot_*.log
-
 # Master Runner
 tail -f logs/master_runner.log
+
+# Auto-Optimizer
+tail -f logs/auto_optimizer_trigger.log
+
+# Nach Fehlern suchen
+grep -i "ERROR" logs/master_runner.log
 ```
 
 #### Aktiven Trade ansehen
@@ -371,8 +438,9 @@ Sichert automatisch `secret.json` vor dem `git reset --hard origin/main`.
 
 - `secret.json` ist **nicht in Git** — wird von `update.sh` automatisch gesichert
 - `artifacts/tracker/global_state.json` ist **nicht in Git** — enthält den aktiven Trade-Status
-- Immer erst `./run_pipeline.sh` (Backtest) bevor Live-Trading aktiviert wird
+- Immer erst `./run_pipeline.sh` (Optimizer) bevor Live-Trading aktiviert wird
 - Den Cronjob-Intervall dem Timeframe anpassen (15m-Strategie → 5min Cronjob)
+- `use_auto_optimizer_results: true` erst aktivieren nachdem `run_pipeline.sh` erfolgreich war
 - Mit sehr kleinem Kapital (< 50 USDT): `min_volume_multiplier` ggf. reduzieren — Bitget erfordert mind. 5 USDT Notional
 
 ---
@@ -384,6 +452,8 @@ ccxt==4.3.5      # Exchange-Verbindung (Bitget)
 pandas==2.1.3    # Datenverarbeitung
 ta==0.11.0       # RSI (via ta-lib Wrapper)
 numpy            # Array-Operationen
+optuna==4.5.0    # Signal-Parameter Optimierung
 requests==2.31.0 # Telegram
+plotly           # Interaktive Charts (Modus 4)
 pytest           # Tests
 ```
