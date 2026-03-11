@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_pipeline.sh - mbot Signal-Parameter Optimierungs-Pipeline
+# run_pipeline.sh - Angepasst fuer mbot (Momentum Breakout)
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -7,67 +7,56 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}======================================================="
-echo "          mbot Momentum Optimierungs-Pipeline"
+echo "       mbot Momentum Optimierungs-Pipeline"
 echo -e "=======================================================${NC}"
 
-# --- Pfade ---
+# --- Pfade definieren ---
 VENV_PATH=".venv/bin/activate"
 OPTIMIZER="src/mbot/analysis/optimizer.py"
 
-# --- venv pruefen ---
+# --- Umgebung aktivieren ---
 if [ ! -f "$VENV_PATH" ]; then
     echo -e "${RED}Fehler: Virtuelle Umgebung nicht gefunden ($VENV_PATH). Bitte install.sh ausfuehren.${NC}"
     exit 1
 fi
 source "$VENV_PATH"
-echo -e "${GREEN}Virtuelle Umgebung aktiviert.${NC}"
+echo -e "${GREEN}✔ Virtuelle Umgebung wurde erfolgreich aktiviert.${NC}"
 
-# --- Aufraeum-Assistent ---
+# --- AUFRAEUM-ASSISTENT ---
 echo -e "\n${YELLOW}Moechtest du alle alten, generierten Configs vor dem Start loeschen?${NC}"
-read -p "Dies wird fuer einen kompletten Neustart empfohlen. (j/n) [Standard: n]: " CLEANUP_CHOICE
-CLEANUP_CHOICE=${CLEANUP_CHOICE:-n}
+read -p "Dies wird fuer einen kompletten Neustart empfohlen. (j/n) [Standard: n]: " CLEANUP_CHOICE; CLEANUP_CHOICE=${CLEANUP_CHOICE:-n}
 if [[ "$CLEANUP_CHOICE" == "j" || "$CLEANUP_CHOICE" == "J" ]]; then
     echo -e "${YELLOW}Loesche alte Konfigurationen...${NC}"
     rm -f src/mbot/strategy/configs/config_*.json
-    echo -e "${GREEN}Aufraeum abgeschlossen.${NC}"
+    echo -e "${GREEN}✔ Aufraeumen abgeschlossen.${NC}"
 else
-    echo -e "${GREEN}Alte Ergebnisse werden beibehalten.${NC}"
+    echo -e "${GREEN}✔ Alte Ergebnisse werden beibehalten.${NC}"
 fi
 
-# --- Interaktive Eingabe ---
-read -p "Handelspaar(e) eingeben (ohne /USDT, z.B. BTC ETH SOL): " SYMBOLS
-read -p "Zeitfenster eingeben (z.B. 15m 1h): " TIMEFRAMES
+# --- Interaktive Abfrage ---
+read -p "Handelspaar(e) eingeben (ohne /USDT, z.B. BTC ETH): " SYMBOLS
+read -p "Zeitfenster eingeben (z.B. 1h 4h): " TIMEFRAMES
 
-echo -e "\n${BLUE}--- Empfehlung: Rueckblick-Zeitraum ---${NC}"
+echo -e "\n${BLUE}--- Empfehlung: Optimaler Rueckblick-Zeitraum ---${NC}"
 printf "+-------------+--------------------------------+\n"
 printf "| Zeitfenster | Empfohlener Rueckblick (Tage)  |\n"
 printf "+-------------+--------------------------------+\n"
-printf "| 1m, 5m      | 14 - 30 Tage                   |\n"
-printf "| 15m, 30m    | 30 - 90 Tage                   |\n"
-printf "| 1h          | 180 - 365 Tage                 |\n"
-printf "| 4h, 1d      | 365 - 730 Tage                 |\n"
+printf "| 5m, 15m     | 15 - 90 Tage                   |\n"
+printf "| 30m, 1h     | 180 - 365 Tage                 |\n"
+printf "| 2h, 4h      | 550 - 730 Tage                 |\n"
+printf "| 6h, 1d      | 1095 - 1825 Tage               |\n"
 printf "+-------------+--------------------------------+\n"
+read -p "Startdatum (JJJJ-MM-TT) oder 'a' fuer Automatik [Standard: a]: " START_DATE_INPUT; START_DATE_INPUT=${START_DATE_INPUT:-a}
 
-read -p "Startdatum (JJJJ-MM-TT) oder 'a' fuer Automatik [Standard: a]: " START_DATE_INPUT
-START_DATE_INPUT=${START_DATE_INPUT:-a}
-
-read -p "Enddatum (JJJJ-MM-TT) [Standard: Heute]: " END_DATE
-END_DATE=${END_DATE:-$(date +%F)}
-
-read -p "Startkapital in USDT [Standard: 1000]: " START_CAPITAL
-START_CAPITAL=${START_CAPITAL:-1000}
-
-read -p "CPU-Kerne [Standard: -1 fuer alle]: " N_CORES
-N_CORES=${N_CORES:--1}
-
-read -p "Anzahl Trials [Standard: 200]: " N_TRIALS
-N_TRIALS=${N_TRIALS:-200}
+read -p "Enddatum (JJJJ-MM-TT) [Standard: Heute]: " END_DATE; END_DATE=${END_DATE:-$(date +%F)}
+read -p "Startkapital in USDT [Standard: 1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
+read -p "CPU-Kerne [Standard: -1 fuer alle]: " N_CORES; N_CORES=${N_CORES:--1}
+read -p "Anzahl Trials [Standard: 200]: " N_TRIALS; N_TRIALS=${N_TRIALS:-200}
 
 echo -e "\n${YELLOW}Waehle einen Optimierungs-Modus:${NC}"
-echo "  1) Strenger Modus  (Profitabel & Sicher)"
+echo "  1) Strenger Modus (Profitabel & Sicher)"
 echo "  2) 'Finde das Beste'-Modus (Max Profit)"
-read -p "Auswahl (1-2) [Standard: 1]: " OPTIM_MODE
-OPTIM_MODE=${OPTIM_MODE:-1}
+read -p "Auswahl (1-2) [Standard: 1]: " OPTIM_MODE; OPTIM_MODE=${OPTIM_MODE:-1}
 
 if [ "$OPTIM_MODE" == "1" ]; then
     OPTIM_MODE_ARG="strict"
@@ -80,63 +69,64 @@ else
     MIN_WR=0; MIN_PNL=-99999
 fi
 
-# --- Automatisches Startdatum ---
-FIRST_TF=$(echo $TIMEFRAMES | awk '{print $1}')
-if [ "$START_DATE_INPUT" == "a" ]; then
-    case "$FIRST_TF" in
-        1m|5m)   LOOKBACK=30  ;;
-        15m|30m) LOOKBACK=60  ;;
-        1h)      LOOKBACK=365 ;;
-        4h)      LOOKBACK=730 ;;
-        1d)      LOOKBACK=730 ;;
-        *)       LOOKBACK=90  ;;
-    esac
-    FINAL_START_DATE=$(date -d "$LOOKBACK days ago" +%F 2>/dev/null || date -v-${LOOKBACK}d +%F)
-    echo -e "${YELLOW}Automatisches Startdatum (${LOOKBACK} Tage Rueckblick): $FINAL_START_DATE${NC}"
-else
-    FINAL_START_DATE=$START_DATE_INPUT
-fi
+for symbol in $SYMBOLS; do
+    for timeframe in $TIMEFRAMES; do
 
-echo -e "\n${BLUE}=======================================================${NC}"
-echo -e "${BLUE}  Optimiere: $SYMBOLS | $TIMEFRAMES${NC}"
-echo -e "${BLUE}  Zeitraum: $FINAL_START_DATE bis $END_DATE${NC}"
-echo -e "${BLUE}  Kapital: $START_CAPITAL USDT | Trials: $N_TRIALS | Kerne: $N_CORES${NC}"
-echo -e "${BLUE}=======================================================${NC}"
+        # --- DATUMSBERECHNUNG ---
+        if [ "$START_DATE_INPUT" == "a" ]; then
+            lookback_days=365
+            case "$timeframe" in
+                5m|15m) lookback_days=60 ;;
+                30m|1h) lookback_days=365 ;;
+                2h|4h)  lookback_days=730 ;;
+                6h|1d)  lookback_days=1095 ;;
+            esac
+            FINAL_START_DATE=$(date -d "$lookback_days days ago" +%F 2>/dev/null || date -v-${lookback_days}d +%F)
+            echo -e "${YELLOW}INFO: Automatisches Startdatum fuer $timeframe (${lookback_days} Tage Rueckblick) gesetzt auf: $FINAL_START_DATE${NC}"
+        else
+            FINAL_START_DATE=$START_DATE_INPUT
+        fi
 
-python3 "$OPTIMIZER" \
-    --symbols $SYMBOLS \
-    --timeframes $TIMEFRAMES \
-    --start_date "$FINAL_START_DATE" \
-    --end_date "$END_DATE" \
-    --start_capital "$START_CAPITAL" \
-    --jobs "$N_CORES" \
-    --trials "$N_TRIALS" \
-    --max_drawdown "$MAX_DD" \
-    --min_win_rate "$MIN_WR" \
-    --min_pnl "$MIN_PNL" \
-    --mode "$OPTIM_MODE_ARG"
+        echo -e "\n${BLUE}=======================================================${NC}"
+        echo -e "${BLUE}  Bearbeite Pipeline fuer: $symbol ($timeframe)${NC}"
+        echo -e "${BLUE}  Datenzeitraum: $FINAL_START_DATE bis $END_DATE${NC}"
+        echo -e "${BLUE}=======================================================${NC}"
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Fehler im Optimizer! Abbruch.${NC}"
-    deactivate
-    exit 1
-fi
+        echo -e "\n${GREEN}>>> Starte Momentum-Optimierung fuer $symbol ($timeframe)...${NC}"
+        python3 "$OPTIMIZER" \
+            --symbols "$symbol" \
+            --timeframes "$timeframe" \
+            --start_date "$FINAL_START_DATE" \
+            --end_date "$END_DATE" \
+            --start_capital "$START_CAPITAL" \
+            --jobs "$N_CORES" \
+            --trials "$N_TRIALS" \
+            --max_drawdown "$MAX_DD" \
+            --min_win_rate "$MIN_WR" \
+            --min_pnl "$MIN_PNL" \
+            --mode "$OPTIM_MODE_ARG"
 
-echo -e "\n${GREEN}Optimierung abgeschlossen. Zeige Ergebnisse...${NC}\n"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Fehler im Optimizer fuer $symbol ($timeframe). Ueberspringe...${NC}"
+        fi
+    done
+done
+
+echo -e "\n${GREEN}>>> Optimierung abgeschlossen. Zeige Ergebnisse...${NC}\n"
 python3 src/mbot/analysis/show_results.py --mode 1
 
 # --- Optional: settings.json aktualisieren ---
 echo ""
-echo -e "${YELLOW}───────────────────────────────────────────────────${NC}"
-read -p "Sollen die optimierten Strategien in settings.json eingetragen werden? (j/n): " AUTO_UPDATE
+echo -e "${YELLOW}─────────────────────────────────────────────────${NC}"
+read -p "Sollen die optimierten Strategien automatisch in settings.json eingetragen werden? (j/n): " AUTO_UPDATE
 AUTO_UPDATE="${AUTO_UPDATE//[$'\r\n ']/}"
 
-if [[ "$AUTO_UPDATE" == "j" || "$AUTO_UPDATE" == "J" ]]; then
-    echo -e "${BLUE}Aktualisiere settings.json...${NC}"
+if [[ "$AUTO_UPDATE" == "j" || "$AUTO_UPDATE" == "J" || "$AUTO_UPDATE" == "y" || "$AUTO_UPDATE" == "Y" ]]; then
+    echo -e "${BLUE}Uebertrage Ergebnisse nach settings.json...${NC}"
+
     python3 << 'EOF'
 import json
 import os
-import re
 
 configs_dir = os.path.join('src', 'mbot', 'strategy', 'configs')
 if not os.path.exists(configs_dir):
@@ -167,14 +157,15 @@ settings['live_trading_settings']['active_strategies'] = strategies
 with open('settings.json', 'w') as f:
     json.dump(settings, f, indent=4)
 
-print(f"  {len(strategies)} Strategie(n) in settings.json eingetragen:")
+print(f"✔ {len(strategies)} Strategie(n) wurden in settings.json eingetragen:")
 for s in strategies:
-    print(f"    - {s['symbol']} ({s['timeframe']})")
+    print(f"   - {s['symbol']} ({s['timeframe']})")
 EOF
-    echo -e "${GREEN}settings.json erfolgreich aktualisiert!${NC}"
+
+    echo -e "${GREEN}✔ settings.json erfolgreich aktualisiert!${NC}"
 else
     echo -e "${YELLOW}Keine Aenderungen an settings.json vorgenommen.${NC}"
 fi
 
 deactivate
-echo -e "\n${BLUE}Pipeline abgeschlossen.${NC}"
+echo -e "\n${BLUE}✔ Alle Pipeline-Aufgaben erfolgreich abgeschlossen!${NC}"
