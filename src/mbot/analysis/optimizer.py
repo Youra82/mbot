@@ -169,7 +169,7 @@ def main():
 
         db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
         storage_url = f"sqlite:///{db_file}?timeout=60"
-        study_name  = f"momentum_{safe_name}_{OPTIM_MODE}"
+        study_name  = f"breakout_{safe_name}_{OPTIM_MODE}"
 
         study = optuna.create_study(
             storage=storage_url,
