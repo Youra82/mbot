@@ -207,10 +207,34 @@ Der Optimizer findet automatisch die besten Werte für alle 15 Parameter:
 
 ## Installation
 
+#### Voraussetzungen
+
+- Python 3.10+
+- Git
+- Bitget-Account mit API-Zugang (Futures / Perpetual)
+- Telegram-Bot (via [@BotFather](https://t.me/BotFather))
+
+#### Schritt 1 — Repository klonen
+
 ```bash
 git clone https://github.com/Youra82/mbot.git
 cd mbot
+```
+
+#### Schritt 2 — Installieren
+
+```bash
 chmod +x install.sh && bash ./install.sh
+```
+
+Das Skript erstellt automatisch:
+- `.venv/` — Python Virtual Environment mit allen Abhängigkeiten
+- `logs/` — Log-Verzeichnis
+- `artifacts/tracker/` — Global-State-Verzeichnis
+
+#### Schritt 3 — API-Keys eintragen
+
+```bash
 nano secret.json
 ```
 
@@ -219,6 +243,37 @@ nano secret.json
     "mbot": [{"name": "Account-1", "apiKey": "...", "secret": "...", "password": "..."}],
     "telegram": {"bot_token": "...", "chat_id": "..."}
 }
+```
+
+> `password` = Bitget Passphrase (nicht das Login-Passwort)
+
+#### Schritt 4 — Symbole und Risiko konfigurieren
+
+`settings.json` anpassen — Symbole aktivieren/deaktivieren, Hebel, Margin-Mode setzen.
+
+#### Schritt 5 — Parameter optimieren
+
+```bash
+./run_pipeline.sh
+```
+
+Optuna optimiert alle 15 MERS-Parameter auf historischen Daten und schreibt die Configs nach `src/mbot/strategy/configs/`.
+
+#### Schritt 6 — Cronjob einrichten (VPS / Linux)
+
+```bash
+crontab -e
+```
+
+```cron
+# 15m-Strategie → alle 5 Minuten
+*/5 * * * * /usr/bin/flock -n /root/mbot/mbot.lock /bin/sh -c "cd /root/mbot && .venv/bin/python3 master_runner.py >> /root/mbot/logs/cron.log 2>&1"
+```
+
+#### Schritt 7 — Status prüfen
+
+```bash
+./show_status.sh
 ```
 
 ---
