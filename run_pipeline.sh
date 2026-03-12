@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_pipeline.sh - Angepasst fuer mbot (Momentum Breakout)
+# run_pipeline.sh - Angepasst fuer mbot (MDEF-MERS)
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -7,7 +7,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}======================================================="
-echo "       mbot Momentum Optimierungs-Pipeline"
+echo "       mbot MDEF-MERS Optimierungs-Pipeline"
 echo -e "=======================================================${NC}"
 
 # --- Pfade definieren ---
@@ -93,7 +93,7 @@ for symbol in $SYMBOLS; do
         echo -e "${BLUE}  Datenzeitraum: $FINAL_START_DATE bis $END_DATE${NC}"
         echo -e "${BLUE}=======================================================${NC}"
 
-        echo -e "\n${GREEN}>>> Starte Momentum-Optimierung fuer $symbol ($timeframe)...${NC}"
+        echo -e "\n${GREEN}>>> Starte MERS-Optimierung fuer $symbol ($timeframe)...${NC}"
         python3 "$OPTIMIZER" \
             --symbols "$symbol" \
             --timeframes "$timeframe" \
