@@ -137,7 +137,7 @@ def main():
     parser.add_argument('--start_capital', type=float, default=1000.0)
     parser.add_argument('--trials',        type=int,   default=200)
     parser.add_argument('--jobs',          type=int,   default=1,
-                        help='Parallele Optuna-Jobs (bei SQLite-Storage: 1 empfohlen!)')
+                        help='Parallele Optuna-Jobs')
     parser.add_argument('--max_drawdown',  type=float, default=30.0,
                         help='Maximaler Drawdown in % (z.B. 30)')
     parser.add_argument('--min_win_rate',  type=float, default=50.0,
@@ -187,8 +187,6 @@ def main():
 
     configs_dir = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
     os.makedirs(configs_dir, exist_ok=True)
-    db_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'db')
-    os.makedirs(db_dir, exist_ok=True)
 
     for task in tasks:
         CURRENT_SYMBOL    = task['symbol']
@@ -211,15 +209,8 @@ def main():
 
         print(f"  {len(HISTORICAL_DATA)} Kerzen geladen.")
 
-        db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
-        storage_url = f"sqlite:///{db_file}?timeout=60"
-        study_name  = f"mers_{safe_name}_{OPTIM_MODE}"
-
         study = optuna.create_study(
-            storage=storage_url,
-            study_name=study_name,
             direction='maximize',
-            load_if_exists=True,
         )
 
         try:

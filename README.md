@@ -126,8 +126,7 @@ mbot/
 ├── artifacts/
 │   ├── tracker/global_state.json     # Aktiver Trade-Status (nicht in Git)
 │   ├── results/last_optimizer_run.json
-│   ├── charts/                       # Generierte HTML-Charts
-│   └── db/optuna_studies_mbot.db     # Optuna SQLite Datenbank
+│   └── charts/                       # Generierte HTML-Charts
 │
 └── src/mbot/
     ├── strategy/
