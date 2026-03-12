@@ -60,7 +60,7 @@ def get_momentum_signal(df: pd.DataFrame, signal_config: dict) -> dict:
             f"LONG Breakout ({breakout_period}): "
             f"close={current['close']:.4f} > Hoch={highest_high:.4f} | Koerper={body_ratio:.0%}"
         )
-        logger.info(f"LONG Signal: {result['reason']}")
+        logger.debug(f"LONG Signal: {result['reason']}")
 
     elif is_bearish and current['close'] < lowest_low and body_ratio >= min_body_ratio:
         result['side']   = 'short'
@@ -68,7 +68,7 @@ def get_momentum_signal(df: pd.DataFrame, signal_config: dict) -> dict:
             f"SHORT Breakout ({breakout_period}): "
             f"close={current['close']:.4f} < Tief={lowest_low:.4f} | Koerper={body_ratio:.0%}"
         )
-        logger.info(f"SHORT Signal: {result['reason']}")
+        logger.debug(f"SHORT Signal: {result['reason']}")
 
     else:
         reasons = []
