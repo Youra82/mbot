@@ -116,6 +116,7 @@ mbot/
 ├── auto_optimizer_scheduler.py       # Auto-Optimizer Zeitplan-Prüfer
 ├── run_pipeline.sh                   # Optuna-Optimierung + Config-Training
 ├── show_results.sh                   # Analyse-Dashboard (4 Modi)
+├── show_status.sh                    # Live-Status: Trade, Configs, Logs
 ├── push_configs.sh                   # Trainierte Configs auf GitHub pushen
 ├── run_tests.sh                      # Pytest-Sicherheitscheck
 ├── update.sh                         # Git-Update (sichert secret.json)
@@ -319,6 +320,9 @@ Grund:   Entropy steigt / Beschleunigung dreht
 ## Tägliche Verwaltung
 
 ```bash
+# Status-Dashboard (Trade, Configs, Logs auf einen Blick)
+./show_status.sh
+
 # Logs
 tail -f logs/cron.log
 tail -f logs/master_runner.log
