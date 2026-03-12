@@ -198,13 +198,32 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
         filled = contracts
 
     # --- SL / TP berechnen ---
-    sl_price, tp_price = calculate_sl_tp_prices(
-        entry_price, side, leverage, sl_account_pct, tp_price_pct
-    )
+    # MERS: ATR-basiert (atr + atr_sl_mult / atr_tp_mult im signal)
+    # Fallback: alte prozentbasierte Berechnung aus risk_config
+    atr         = signal.get('atr')
+    atr_sl_mult = signal.get('atr_sl_mult')
+    atr_tp_mult = signal.get('atr_tp_mult')
+
+    if atr and atr > 0 and atr_sl_mult and atr_tp_mult:
+        # ATR-basiert: Neuberechnung mit tatsaechlichem Fill-Preis
+        if side == 'long':
+            sl_price = entry_price - atr_sl_mult * atr
+            tp_price = entry_price + atr_tp_mult * atr
+        else:
+            sl_price = entry_price + atr_sl_mult * atr
+            tp_price = entry_price - atr_tp_mult * atr
+        logger.info(f"SL/TP ATR-basiert: ATR={atr:.4f} | SL-Mult={atr_sl_mult} | TP-Mult={atr_tp_mult}")
+    else:
+        # Fallback: prozentbasiert aus risk_config
+        sl_price, tp_price = calculate_sl_tp_prices(
+            entry_price, side, leverage, sl_account_pct, tp_price_pct
+        )
+        logger.info(f"SL/TP prozentbasiert: SL={sl_account_pct}%/Konto | TP={tp_price_pct}%/Preis")
 
     logger.info(f"Entry-Preis: {entry_price:.4f} | SL: {sl_price:.4f} | TP: {tp_price:.4f}")
-    logger.info(f"SL-Abstand: {abs(entry_price - sl_price) / entry_price * 100:.3f}% Preis "
-                f"= {sl_account_pct:.1f}% Konto-Verlust bei {leverage}x")
+    sl_dist_pct = abs(entry_price - sl_price) / entry_price * 100
+    tp_dist_pct = abs(tp_price - entry_price) / entry_price * 100
+    logger.info(f"SL-Abstand: {sl_dist_pct:.3f}% | TP-Abstand: {tp_dist_pct:.3f}% | R:R=1:{tp_dist_pct/sl_dist_pct:.1f}")
 
     # Kurz warten, damit Entry verarbeitet ist
     time.sleep(1.0)
@@ -245,15 +264,16 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     # --- Telegram-Benachrichtigung ---
     sl_dist_pct  = abs(entry_price - sl_price) / entry_price * 100
     tp_dist_pct  = abs(tp_price - entry_price) / entry_price * 100
-    account_gain = tp_price_pct * leverage
+    rr_ratio     = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 0
 
     msg = (
-        f"mbot - NEUER TRADE\n\n"
+        f"mbot MERS - NEUER TRADE\n\n"
         f"Symbol:    {symbol} ({timeframe})\n"
         f"Richtung:  {side.upper()}\n"
         f"Entry:     {entry_price:.4f} USDT\n"
-        f"SL:        {sl_price:.4f} ({sl_dist_pct:.2f}% Preis = -{sl_account_pct:.1f}% Konto)\n"
-        f"TP:        {tp_price:.4f} ({tp_dist_pct:.2f}% Preis = +{account_gain:.0f}% Konto)\n"
+        f"SL:        {sl_price:.4f} ({sl_dist_pct:.2f}% Preis)\n"
+        f"TP:        {tp_price:.4f} ({tp_dist_pct:.2f}% Preis)\n"
+        f"R:R:       1:{rr_ratio:.1f}\n"
         f"Hebel:     {leverage}x | Kapital: {balance:.2f} USDT\n"
         f"Kontrakte: {filled:.4f}\n\n"
         f"Signal:    {signal.get('reason', '')}"

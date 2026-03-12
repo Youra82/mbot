@@ -136,7 +136,7 @@ if not os.path.exists(configs_dir):
 
 strategies = []
 for fn in sorted(os.listdir(configs_dir)):
-    if not fn.startswith('config_') or not fn.endswith('_momentum.json'):
+    if not fn.startswith('config_') or not fn.endswith('_mers.json'):
         continue
     path = os.path.join(configs_dir, fn)
     try:

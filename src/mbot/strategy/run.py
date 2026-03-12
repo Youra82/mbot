@@ -1,16 +1,17 @@
 # src/mbot/strategy/run.py
 """
-mbot - Strategy Runner
+mbot - Strategy Runner (MDEF-MERS Hybrid)
 
 Modi:
-  --mode signal  : Signal pruefen, Trade platzieren wenn Signal vorhanden
-  --mode check   : Offene Position pruefen, Global State loeschen falls geschlossen
+  --mode signal  : Signal pruefen (MERS), Trade platzieren wenn Signal vorhanden
+  --mode check   : Offene Position pruefen, State-Exit pruefen, Global State loeschen falls geschlossen
 
 Signal-Parameter werden aus der generierten Config-Datei geladen:
-  src/mbot/strategy/configs/config_BTCUSDTUSDT_15m_momentum.json
+  src/mbot/strategy/configs/config_BTCUSDTUSDT_15m_mers.json
   (erstellt von run_pipeline.sh via optimizer.py)
 
-Risiko-Parameter (Hebel, SL, TP) kommen weiterhin aus settings.json.
+Risiko-Parameter (Hebel, Margin-Mode) kommen aus settings.json.
+SL/TP werden ATR-basiert direkt vom MERS-Signal berechnet.
 
 Wird vom master_runner.py aufgerufen.
 """
@@ -20,7 +21,6 @@ import sys
 import json
 import logging
 import argparse
-import ccxt
 from logging.handlers import RotatingFileHandler
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
@@ -34,8 +34,9 @@ from mbot.utils.trade_manager import (
     execute_signal_trade,
     check_position_status,
     read_global_state,
+    clear_global_state,
 )
-from mbot.strategy.momentum_logic import get_momentum_signal
+from mbot.strategy.mers_signal import get_mers_signal, check_mers_exit
 
 
 # ============================================================
@@ -76,34 +77,63 @@ def run_for_account(account: dict, telegram_config: dict,
                      mode: str, settings: dict, logger: logging.Logger):
     """
     Hauptausfuehrung fuer einen Account.
-    mode='signal': Signal pruefen und Trade platzieren
-    mode='check':  Offene Position pruefen
+    mode='signal': MERS-Signal pruefen und Trade platzieren
+    mode='check':  Offene Position pruefen, state-basierten Exit auswerten
     """
-    logger.info(f"=== mbot Start | {symbol} ({timeframe}) | Modus: {mode} ===")
+    logger.info(f"=== mbot MERS Start | {symbol} ({timeframe}) | Modus: {mode} ===")
 
     exchange    = Exchange(account)
     risk_config = settings.get('risk', {})
 
-    # Signal-Parameter aus generierter Config-Datei laden (erstellt von optimizer.py)
+    # MERS Signal-Parameter aus generierter Config-Datei laden
     safe_name   = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     config_path = os.path.join(
         PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs',
-        f'config_{safe_name}_momentum.json'
+        f'config_{safe_name}_mers.json'
     )
     if os.path.exists(config_path):
         with open(config_path, 'r') as cf:
             loaded_cfg = json.load(cf)
         signal_config = loaded_cfg.get('signal', {})
-        logger.info(f"Config geladen: config_{safe_name}_momentum.json "
+        logger.info(f"Config geladen: config_{safe_name}_mers.json "
                     f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}%)")
     else:
-        # Fallback: Signal-Defaults aus settings.json
         signal_config = settings.get('signal', {})
-        logger.warning(f"Keine Config-Datei gefunden fuer {symbol} ({timeframe}). "
+        logger.warning(f"Keine MERS-Config gefunden fuer {symbol} ({timeframe}). "
                        f"Verwende Defaults aus settings.json. "
                        f"Bitte zuerst run_pipeline.sh ausfuehren.")
 
     if mode == 'check':
+        # --- State-basierter Exit (MERS): Entropy steigt oder Acc dreht ---
+        state = read_global_state()
+        if state.get('active_symbol') == symbol:
+            entry_side = state.get('side')
+            df_check = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
+            if not df_check.empty and entry_side:
+                if check_mers_exit(df_check, signal_config, entry_side):
+                    logger.info(
+                        f"MERS State-Exit ausgeloest fuer {symbol}: "
+                        f"Entropy steigt oder Beschleunigung gedreht."
+                    )
+                    try:
+                        exchange.cancel_all_orders_for_symbol(symbol)
+                        exchange.close_position(symbol)
+                        logger.info(f"Position {symbol} manuell geschlossen (State-Exit).")
+                    except Exception as e:
+                        logger.error(f"Fehler beim State-Exit-Schliessen: {e}")
+
+                    send_message(
+                        telegram_config.get('bot_token'),
+                        telegram_config.get('chat_id'),
+                        f"mbot MERS - STATE EXIT\n\n"
+                        f"Symbol:  {symbol} ({timeframe})\n"
+                        f"Seite:   {entry_side.upper() if entry_side else '?'}\n"
+                        f"Grund:   Entropy steigt / Beschleunigung dreht\n"
+                        f"(MERS state-basierter Exit vor SL/TP)"
+                    )
+                    clear_global_state()
+                    return
+
         # --- Positions-Check: Ist der Trade noch offen? ---
         check_position_status(exchange, symbol, timeframe, telegram_config, logger)
 
@@ -117,22 +147,24 @@ def run_for_account(account: dict, telegram_config: dict,
             )
             return
 
-        # OHLCV-Daten laden
-        df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=150)
+        # OHLCV-Daten laden (mehr Kerzen benoetigt fuer Entropy-Berechnung)
+        df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
         if df.empty:
             logger.warning(f"Keine OHLCV-Daten fuer {symbol}. Ueberspringe.")
             return
 
-        # Signal berechnen
-        signal = get_momentum_signal(df, signal_config)
+        # MERS-Signal berechnen
+        signal = get_mers_signal(df, signal_config)
         logger.info(
-            f"Signal-Check {symbol}: side={signal['side']} | "
-            f"Koerper={signal['body_ratio']:.0%} | "
+            f"MERS-Signal {symbol}: side={signal['side']} | "
+            f"Entropy-Drop={signal['entropy_drop']} | "
+            f"Energie-Rise={signal['energy_rise']} | "
+            f"Acc={signal['acceleration']} | "
             f"Grund: {signal['reason']}"
         )
 
         if signal['side'] is None:
-            logger.info(f"Kein Signal fuer {symbol}.")
+            logger.info(f"Kein MERS-Signal fuer {symbol}.")
             return
 
         # Nochmal pruefen ob noch frei (race condition minimieren)
@@ -140,18 +172,18 @@ def run_for_account(account: dict, telegram_config: dict,
             logger.info(f"Global State gerade belegt, ueberspringe {symbol}.")
             return
 
-        # Trade ausfuehren
+        # Trade ausfuehren (SL/TP ATR-basiert aus signal['sl_price'] / signal['tp_price'])
         success = execute_signal_trade(
             exchange, symbol, timeframe, signal,
             risk_config, telegram_config, logger
         )
 
         if success:
-            logger.info(f"Trade fuer {symbol} erfolgreich platziert.")
+            logger.info(f"MERS Trade fuer {symbol} erfolgreich platziert.")
         else:
-            logger.info(f"Trade fuer {symbol} nicht platziert.")
+            logger.info(f"MERS Trade fuer {symbol} nicht platziert.")
 
-    logger.info(f"=== mbot Ende | {symbol} ({timeframe}) | Modus: {mode} ===")
+    logger.info(f"=== mbot MERS Ende | {symbol} ({timeframe}) | Modus: {mode} ===")
 
 
 # ============================================================
@@ -159,7 +191,7 @@ def run_for_account(account: dict, telegram_config: dict,
 # ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='mbot Strategy Runner')
+    parser = argparse.ArgumentParser(description='mbot MERS Strategy Runner')
     parser.add_argument('--symbol',    required=True, type=str, help='Handelspaar (z.B. BTC/USDT:USDT)')
     parser.add_argument('--timeframe', required=True, type=str, help='Zeitrahmen (z.B. 15m)')
     parser.add_argument('--mode',      required=True, type=str,
@@ -199,7 +231,6 @@ def main():
         logger.critical(f"Initialisierungsfehler: {e}", exc_info=True)
         sys.exit(1)
 
-    # Nur ersten Account verwenden (mbot hat einen Account)
     account = accounts[0]
     try:
         run_for_account(account, telegram_config, symbol, timeframe, mode, settings, logger)

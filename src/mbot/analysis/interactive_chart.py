@@ -34,7 +34,7 @@ def _load_all_configs() -> list:
     if not os.path.exists(CONFIGS_DIR):
         return []
     files = sorted(f for f in os.listdir(CONFIGS_DIR)
-                   if f.startswith('config_') and f.endswith('_momentum.json'))
+                   if f.startswith('config_') and f.endswith('_mers.json'))
     configs = []
     for fn in files:
         path = os.path.join(CONFIGS_DIR, fn)
@@ -245,7 +245,7 @@ def run_interactive_chart():
         tf      = market.get('timeframe', '?')
         pnl     = cfg.get('_meta', {}).get('pnl_pct')
         pnl_str = f'  [{pnl:+.1f}%]' if pnl is not None else ''
-        clean   = cfg['_filename'].replace('config_', '').replace('_momentum.json', '')
+        clean   = cfg['_filename'].replace('config_', '').replace('_mers.json', '')
         print(f'{idx:>3}) {clean}{CYAN}{pnl_str}{NC}')
     print(f'{BOLD}{"="*60}{NC}')
 

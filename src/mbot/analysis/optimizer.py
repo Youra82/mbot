@@ -1,11 +1,22 @@
 # src/mbot/analysis/optimizer.py
 """
-mbot Signal-Parameter Optimizer (Optuna)
+mbot MERS Parameter Optimizer (Optuna)
 
-Optimiert die Signal-Parameter (BB, Volume, RSI) fuer jedes Symbol/Timeframe-Paar.
-Die Risiko-Parameter (Hebel 20x, SL 2%, TP 1%) sind fest vorgegeben und werden NICHT optimiert.
+Optimiert die MERS Signal-Parameter fuer jedes Symbol/Timeframe-Paar.
+Die Risiko-Parameter (Hebel 20x, Margin-Mode) sind fest vorgegeben.
+SL/TP werden ATR-basiert durch atr_sl_mult / atr_tp_mult gesteuert.
 
-Gespeicherte Config-Datei: src/mbot/strategy/configs/config_BTCUSDTUSDT_15m_momentum.json
+Optimierte Parameter:
+  entropy_window       : Rollierendes Fenster fuer Shannon Entropy (10-60)
+  entropy_lookback     : Rueckschau fuer Entropy-Vergleich (3-25)
+  energy_lookback      : Rueckschau fuer Energie-Vergleich (3-25)
+  min_entropy_drop_pct : Minimaler Entropy-Abfall fuer Signal (0.01-0.35)
+  min_energy_rise_pct  : Minimaler Energie-Anstieg fuer Signal (0.05-1.50)
+  atr_period           : ATR-Periode (7-28)
+  atr_sl_mult          : SL = entry +/- atr_sl_mult * ATR (0.5-3.0)
+  atr_tp_mult          : TP = entry +/- atr_tp_mult * ATR (1.0-6.0, immer > atr_sl_mult)
+
+Gespeicherte Config-Datei: src/mbot/strategy/configs/config_BTCUSDTUSDT_15m_mers.json
 """
 
 import os
@@ -46,9 +57,43 @@ def create_safe_filename(symbol: str, timeframe: str) -> str:
 
 def objective(trial):
     """Optuna-Zielfunktion: maximiert PnL% unter den konfigurierten Constraints."""
+    # --- Kern-MERS Parameter ---
+    entropy_window   = trial.suggest_int(  'entropy_window',       10,  60)
+    entropy_lookback = trial.suggest_int(  'entropy_lookback',      3,  25)
+    energy_lookback  = trial.suggest_int(  'energy_lookback',       3,  25)
+    min_entropy_drop = trial.suggest_float('min_entropy_drop_pct', 0.01, 0.35, step=0.01)
+    min_energy_rise  = trial.suggest_float('min_energy_rise_pct',  0.05, 1.50, step=0.05)
+    atr_period       = trial.suggest_int(  'atr_period',            7,  28)
+    atr_sl_mult      = trial.suggest_float('atr_sl_mult',          0.5,  3.0, step=0.25)
+    # TP muss groesser als SL sein (sonst kein positives R:R)
+    atr_tp_mult      = trial.suggest_float('atr_tp_mult',
+                                            max(atr_sl_mult + 0.5, 1.0), 6.0, step=0.25)
+
+    # --- MDEF Regime-Check Parameter ---
+    use_regime_filter = trial.suggest_int('use_regime_filter', 0, 1)
+    regime_window     = trial.suggest_int('regime_window',     10, 40)
+    allow_range_trade = trial.suggest_int('allow_range_trade',  0,  1)
+
+    # --- MDEF Multi-Timeframe Parameter ---
+    use_multitf_filter = trial.suggest_int('use_multitf_filter', 0, 1)
+    meso_tf_mult       = trial.suggest_int('meso_tf_mult',       2,  8)
+    macro_tf_mult      = trial.suggest_int('macro_tf_mult',      8, 32)
+
     signal_config = {
-        'breakout_period': trial.suggest_int('breakout_period', 5, 50),
-        'min_body_ratio':  trial.suggest_float('min_body_ratio', 0.40, 0.80, step=0.05),
+        'entropy_window':       entropy_window,
+        'entropy_lookback':     entropy_lookback,
+        'energy_lookback':      energy_lookback,
+        'min_entropy_drop_pct': min_entropy_drop,
+        'min_energy_rise_pct':  min_energy_rise,
+        'atr_period':           atr_period,
+        'atr_sl_mult':          atr_sl_mult,
+        'atr_tp_mult':          atr_tp_mult,
+        'use_regime_filter':    use_regime_filter,
+        'regime_window':        regime_window,
+        'allow_range_trade':    allow_range_trade,
+        'use_multitf_filter':   use_multitf_filter,
+        'meso_tf_mult':         meso_tf_mult,
+        'macro_tf_mult':        macro_tf_mult,
     }
 
     result = run_backtest(
@@ -60,9 +105,9 @@ def objective(trial):
     )
 
     pnl      = result.get('total_pnl_pct', -9999.0)
-    drawdown = result.get('max_drawdown', 100.0)
-    win_rate = result.get('win_rate', 0.0)
-    trades   = result.get('total_trades', 0)
+    drawdown = result.get('max_drawdown',  100.0)
+    win_rate = result.get('win_rate',        0.0)
+    trades   = result.get('total_trades',      0)
 
     if OPTIM_MODE == 'strict':
         if (drawdown > MAX_DRAWDOWN_CONSTRAINT * 100
@@ -82,7 +127,7 @@ def main():
     global START_CAPITAL, MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
     global MIN_PNL_CONSTRAINT, OPTIM_MODE
 
-    parser = argparse.ArgumentParser(description='mbot Signal-Parameter Optimizer')
+    parser = argparse.ArgumentParser(description='mbot MERS Parameter Optimizer')
     parser.add_argument('--symbols',       type=str, required=True,
                         help='Space-getrennte Coins, z.B. "BTC ETH"')
     parser.add_argument('--timeframes',    type=str, required=True,
@@ -109,7 +154,6 @@ def main():
     START_CAPITAL           = args.start_capital
     OPTIM_MODE              = args.mode
 
-    # Settings laden (Risiko-Parameter sind fest)
     with open(os.path.join(PROJECT_ROOT, 'settings.json'), 'r') as f:
         settings = json.load(f)
     with open(os.path.join(PROJECT_ROOT, 'secret.json'), 'r') as f:
@@ -143,7 +187,7 @@ def main():
 
     configs_dir = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
     os.makedirs(configs_dir, exist_ok=True)
-    db_dir  = os.path.join(PROJECT_ROOT, 'artifacts', 'db')
+    db_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'db')
     os.makedirs(db_dir, exist_ok=True)
 
     for task in tasks:
@@ -151,7 +195,7 @@ def main():
         CURRENT_TIMEFRAME = task['timeframe']
         safe_name         = create_safe_filename(CURRENT_SYMBOL, CURRENT_TIMEFRAME)
 
-        print(f"\n===== Optimiere: {CURRENT_SYMBOL} ({CURRENT_TIMEFRAME}) =====")
+        print(f"\n===== MERS Optimierung: {CURRENT_SYMBOL} ({CURRENT_TIMEFRAME}) =====")
         print(f"  Modus: {OPTIM_MODE} | Trials: {args.trials} | Kapital: {START_CAPITAL} USDT")
         print(f"  Constraints: MaxDD={args.max_drawdown}% | MinWR={args.min_win_rate}% | MinPnL={args.min_pnl}%")
 
@@ -169,7 +213,7 @@ def main():
 
         db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
         storage_url = f"sqlite:///{db_file}?timeout=60"
-        study_name  = f"breakout_{safe_name}_{OPTIM_MODE}"
+        study_name  = f"mers_{safe_name}_{OPTIM_MODE}"
 
         study = optuna.create_study(
             storage=storage_url,
@@ -206,18 +250,30 @@ def main():
         best_params = best_trial.params
         best_pnl    = best_trial.value
 
-        # Backtest mit besten Parametern fuer vollstaendige Metriken
         best_signal_config = {
-            'breakout_period': best_params['breakout_period'],
-            'min_body_ratio':  best_params['min_body_ratio'],
+            'entropy_window':       best_params['entropy_window'],
+            'entropy_lookback':     best_params['entropy_lookback'],
+            'energy_lookback':      best_params['energy_lookback'],
+            'min_entropy_drop_pct': best_params['min_entropy_drop_pct'],
+            'min_energy_rise_pct':  best_params['min_energy_rise_pct'],
+            'atr_period':           best_params['atr_period'],
+            'atr_sl_mult':          best_params['atr_sl_mult'],
+            'atr_tp_mult':          best_params['atr_tp_mult'],
+            'use_regime_filter':    best_params['use_regime_filter'],
+            'regime_window':        best_params['regime_window'],
+            'allow_range_trade':    best_params['allow_range_trade'],
+            'use_multitf_filter':   best_params['use_multitf_filter'],
+            'meso_tf_mult':         best_params['meso_tf_mult'],
+            'macro_tf_mult':        best_params['macro_tf_mult'],
         }
+
         final_result = run_backtest(
             HISTORICAL_DATA.copy(), best_signal_config, RISK_CONFIG,
             start_capital=START_CAPITAL, symbol=CURRENT_SYMBOL,
         )
 
         # Nur speichern wenn besser als bestehende Config
-        config_file = os.path.join(configs_dir, f'config_{safe_name}_momentum.json')
+        config_file  = os.path.join(configs_dir, f'config_{safe_name}_mers.json')
         existing_pnl = None
         if os.path.exists(config_file):
             try:
@@ -228,7 +284,7 @@ def main():
                 pass
 
         if existing_pnl is not None and best_pnl <= existing_pnl:
-            print(f"  Bestehende Config besser ({existing_pnl:.2f}% vs {best_pnl:.2f}%) — wird nicht ueberschrieben.")
+            print(f"  Bestehende Config besser ({existing_pnl:.2f}% vs {best_pnl:.2f}%) - wird nicht ueberschrieben.")
             run_results['failed'].append({
                 'symbol': CURRENT_SYMBOL, 'timeframe': CURRENT_TIMEFRAME,
                 'reason': f'existing_better_{existing_pnl:.2f}pct',
@@ -242,6 +298,7 @@ def main():
             },
             'signal': best_signal_config,
             '_meta': {
+                'strategy':      'MDEF-MERS',
                 'pnl_pct':       round(best_pnl, 2),
                 'win_rate':      final_result.get('win_rate', 0.0),
                 'total_trades':  final_result.get('total_trades', 0),
@@ -258,18 +315,31 @@ def main():
         with open(config_file, 'w') as f:
             json.dump(config_output, f, indent=4)
 
-        print(f"\n  [OK] Beste Config gespeichert: config_{safe_name}_momentum.json")
+        print(f"\n  [OK] Beste MERS Config gespeichert: config_{safe_name}_mers.json")
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       breakout_period={best_params['breakout_period']} "
-              f"min_body_ratio={best_params['min_body_ratio']:.2f}")
+        print(f"       entropy_window={best_params['entropy_window']} "
+              f"entropy_lookback={best_params['entropy_lookback']} "
+              f"energy_lookback={best_params['energy_lookback']}")
+        print(f"       min_entropy_drop={best_params['min_entropy_drop_pct']:.2f} "
+              f"min_energy_rise={best_params['min_energy_rise_pct']:.2f} "
+              f"atr_period={best_params['atr_period']}")
+        print(f"       atr_sl_mult={best_params['atr_sl_mult']:.2f} "
+              f"atr_tp_mult={best_params['atr_tp_mult']:.2f} "
+              f"(R:R = 1:{best_params['atr_tp_mult']/best_params['atr_sl_mult']:.1f})")
+        print(f"       regime_filter={bool(best_params['use_regime_filter'])} "
+              f"regime_window={best_params['regime_window']} "
+              f"allow_range={bool(best_params['allow_range_trade'])}")
+        print(f"       multitf_filter={bool(best_params['use_multitf_filter'])} "
+              f"meso_mult={best_params['meso_tf_mult']} "
+              f"macro_mult={best_params['macro_tf_mult']}")
 
         run_results['saved'].append({
             'symbol':      CURRENT_SYMBOL,
             'timeframe':   CURRENT_TIMEFRAME,
             'pnl_pct':     round(best_pnl, 2),
-            'config_file': f'config_{safe_name}_momentum.json',
+            'config_file': f'config_{safe_name}_mers.json',
         })
 
     run_results['run_end'] = _dt.now().isoformat(timespec='seconds')
@@ -277,7 +347,7 @@ def main():
     with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(run_results, f, indent=2, ensure_ascii=False)
 
-    print(f"\n===== Optimierung abgeschlossen =====")
+    print(f"\n===== MERS Optimierung abgeschlossen =====")
     print(f"  Gespeichert: {len(run_results['saved'])}  |  Fehlgeschlagen: {len(run_results['failed'])}")
 
 

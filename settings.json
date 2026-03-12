@@ -50,12 +50,26 @@
     },
     "risk": {
         "leverage": 20,
-        "margin_mode": "isolated",
-        "sl_account_pct": 2.0,
-        "tp_price_pct": 1.0
+        "margin_mode": "isolated"
     },
     "signal": {
-        "breakout_period": 20,
-        "min_body_ratio": 0.50
+        "_info": "MDEF-MERS Hybrid Bot - Vollstaendige 4-Layer Implementierung",
+        "_layer1_mers": "Kern-Signalbedingungen (Entropy + Energie + Beschleunigung)",
+        "entropy_window": 20,
+        "entropy_lookback": 10,
+        "energy_lookback": 5,
+        "min_entropy_drop_pct": 0.05,
+        "min_energy_rise_pct": 0.20,
+        "atr_period": 14,
+        "atr_sl_mult": 1.5,
+        "atr_tp_mult": 3.0,
+        "_layer2_regime": "Phasenraum Regime-Check (MDEF) - filtert chaotische Phasen",
+        "use_regime_filter": 1,
+        "regime_window": 20,
+        "allow_range_trade": 0,
+        "_layer3_multitf": "Multi-Timeframe Resonanz (MDEF) - handelt nur bei Ausrichtung",
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 4,
+        "macro_tf_mult": 16
     }
 }

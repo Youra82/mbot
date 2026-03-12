@@ -14,7 +14,7 @@ echo -e "${YELLOW}========== CONFIGS PUSHEN ==========${NC}"
 echo ""
 
 # Prüfe ob Config-Dateien existieren
-CONFIG_COUNT=$(ls "$CONFIGS_DIR"/config_*_momentum.json 2>/dev/null | wc -l)
+CONFIG_COUNT=$(ls "$CONFIGS_DIR"/config_*_mers.json 2>/dev/null | wc -l)
 if [ "$CONFIG_COUNT" -eq 0 ]; then
     echo -e "${RED}❌ Keine Konfigurationsdateien gefunden in: $CONFIGS_DIR${NC}"
     echo -e "${YELLOW}Bitte zuerst run_pipeline.sh ausfuehren.${NC}"
@@ -22,13 +22,13 @@ if [ "$CONFIG_COUNT" -eq 0 ]; then
 fi
 
 echo "Gefundene Konfigurationen:"
-for f in "$CONFIGS_DIR"/config_*_momentum.json; do
+for f in "$CONFIGS_DIR"/config_*_mers.json; do
     echo "  - $(basename "$f")"
 done
 echo ""
 
 # Änderungen prüfen
-git add "$CONFIGS_DIR"/config_*_momentum.json
+git add "$CONFIGS_DIR"/config_*_mers.json
 STAGED=$(git diff --cached --name-only)
 
 if [ -z "$STAGED" ]; then

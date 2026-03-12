@@ -68,7 +68,7 @@ def load_strategies_from_configs() -> list:
         return []
     strategies = []
     for fn in sorted(os.listdir(CONFIGS_DIR)):
-        if not fn.startswith('config_') or not fn.endswith('_momentum.json'):
+        if not fn.startswith('config_') or not fn.endswith('_mers.json'):
             continue
         path = os.path.join(CONFIGS_DIR, fn)
         try:

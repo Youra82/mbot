@@ -1,32 +1,36 @@
 # src/mbot/analysis/backtester.py
 """
-mbot Backtester
+mbot Backtester (MDEF-MERS)
 
-Simuliert das Momentum-Signal auf historischen Kerzen und berechnet:
+Simuliert das MERS-Signal auf historischen Kerzen und berechnet:
 - Anzahl Trades (Long/Short)
 - Win-Rate
 - Gesamt-PnL (USDT und %)
 - Max Drawdown
 - Bestes/Schlechtestes Trade-Ergebnis
 - Trade-Liste
+
+SL/TP: ATR-basiert (aus MERS signal['sl_price'] / signal['tp_price'])
+Exit:   Intra-candle SL/TP-Pruefung via High/Low (Hard Stop)
 """
 
 import os
 import sys
-import json
 import logging
+import time
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from mbot.strategy.momentum_logic import get_momentum_signal
+from mbot.strategy.mers_signal import get_mers_signal
 
 logger = logging.getLogger(__name__)
 
-MIN_CANDLES = 55  # Mindest-Kerzen fuer Signalberechnung (breakout_period max 50 + Buffer)
+# Mindest-Kerzen bevor erstes Signal berechnet werden kann
+# entropy_window (max 60) + entropy_lookback (max 20) + atr_period (max 21) + buffer
+MIN_CANDLES = 110
 
 
 def load_data(exchange_instance, symbol: str, timeframe: str,
@@ -35,7 +39,7 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
     Laedt historische OHLCV-Daten von Bitget.
     Benoetigt eine Exchange-Instanz.
     """
-    logger.info(f"Lade Daten: {symbol} ({timeframe}) | {start_date} → {end_date}")
+    logger.info(f"Lade Daten: {symbol} ({timeframe}) | {start_date} -> {end_date}")
     if not hasattr(exchange_instance, 'exchange'):
         logger.error("Ungueltige Exchange-Instanz uebergeben.")
         return pd.DataFrame()
@@ -47,7 +51,6 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
     all_ohlcv = []
     current   = start_ts
 
-    import time
     while current < end_ts:
         try:
             chunk = exchange_instance.exchange.fetch_ohlcv(symbol, timeframe, current, 200)
@@ -78,20 +81,18 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
 def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                   start_capital: float = 1000.0, symbol: str = '') -> dict:
     """
-    Fuehrt den Backtest durch.
+    Fuehrt den MERS-Backtest durch.
 
     Logik:
-    - Jede Kerze wird als potentielles Signal geprueft
-    - Signal → sofortiger Entry zum Close-Kurs dieser Kerze
+    - Jede Kerze wird als potentielles MERS-Signal geprueft
+    - Signal -> sofortiger Entry zum Close-Kurs dieser Kerze
+    - SL/TP werden ATR-basiert aus dem Signal berechnet
     - TP / SL werden auf naechsten Kerzen geprueft (intra-candle via High/Low)
     - Nur ein Trade zur Zeit (kein gleichzeitiger Trade)
 
     Returns dict mit allen Ergebnissen.
     """
-    leverage       = int(risk_config.get('leverage', 20))
-    sl_account_pct = float(risk_config.get('sl_account_pct', 2.0))
-    tp_price_pct   = float(risk_config.get('tp_price_pct', 1.0))
-    sl_price_pct   = sl_account_pct / leverage  # z.B. 2.0/20 = 0.1%
+    leverage = int(risk_config.get('leverage', 20))
 
     capital  = start_capital
     trades   = []
@@ -103,30 +104,28 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
 
         # --- Trade-Aufloesung (SL/TP hit check) ---
         if in_trade:
-            entry  = trade['entry_price']
-            side   = trade['side']
-            sl_p   = trade['sl_price']
-            tp_p   = trade['tp_price']
-            hi     = current['high']
-            lo     = current['low']
+            entry = trade['entry_price']
+            side  = trade['side']
+            sl_p  = trade['sl_price']
+            tp_p  = trade['tp_price']
+            hi    = current['high']
+            lo    = current['low']
 
             hit_sl = (side == 'long'  and lo  <= sl_p) or (side == 'short' and hi >= sl_p)
             hit_tp = (side == 'long'  and hi  >= tp_p) or (side == 'short' and lo <= tp_p)
 
             if hit_sl or hit_tp:
-                # Pruefe welcher zuerst (vereinfacht: bei gleicher Kerze SL-Prioritaet)
+                # Bei gleicher Kerze: SL-Prioritaet (konservativ)
                 if hit_sl and hit_tp:
-                    # Konservativ: SL gewinnt
-                    result  = 'loss'
-                    exit_p  = sl_p
+                    result = 'loss'
+                    exit_p = sl_p
                 elif hit_tp:
-                    result  = 'win'
-                    exit_p  = tp_p
+                    result = 'win'
+                    exit_p = tp_p
                 else:
-                    result  = 'loss'
-                    exit_p  = sl_p
+                    result = 'loss'
+                    exit_p = sl_p
 
-                # PnL berechnen
                 if side == 'long':
                     pnl_pct = (exit_p - entry) / entry * leverage * 100
                 else:
@@ -135,12 +134,14 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                 pnl_usdt = capital * pnl_pct / 100
                 capital  = max(capital + pnl_usdt, 0.0)
 
+                idx = df.index[i]
+                exit_time = idx.isoformat() if hasattr(idx, 'isoformat') else str(idx)
                 trade.update({
-                    'exit_price':  exit_p,
-                    'exit_time':   df.index[i].isoformat(),
-                    'result':      result,
-                    'pnl_pct':     round(pnl_pct, 2),
-                    'pnl_usdt':    round(pnl_usdt, 2),
+                    'exit_price':    exit_p,
+                    'exit_time':     exit_time,
+                    'result':        result,
+                    'pnl_pct':       round(pnl_pct, 2),
+                    'pnl_usdt':      round(pnl_usdt, 2),
                     'capital_after': round(capital, 2),
                 })
                 trades.append(trade)
@@ -148,30 +149,48 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                 trade = {}
             continue  # Wenn in Trade: keine neue Signal-Pruefung
 
-        # --- Signal-Pruefung ---
-        window = df.iloc[max(0, i - 59):i + 1]  # Rolling window (breakout_period max 50 + Buffer)
-        signal = get_momentum_signal(window, signal_config)
+        # --- MERS-Signal-Pruefung ---
+        window = df.iloc[max(0, i - MIN_CANDLES):i + 1]
+        signal = get_mers_signal(window, signal_config)
 
         if signal['side'] is None:
             continue
 
         # Entry
-        entry_price  = float(current['close'])
-        side         = signal['side']
-        sl_price_abs = entry_price * (1 - sl_price_pct / 100) if side == 'long' \
-                       else entry_price * (1 + sl_price_pct / 100)
-        tp_price_abs = entry_price * (1 + tp_price_pct / 100) if side == 'long' \
-                       else entry_price * (1 - tp_price_pct / 100)
+        entry_price = float(current['close'])
+        side        = signal['side']
 
+        # ATR-basierte SL/TP anhand tatsaechlichem Entry-Preis neu berechnen
+        atr         = signal.get('atr', 0)
+        atr_sl_mult = signal.get('atr_sl_mult', 1.5)
+        atr_tp_mult = signal.get('atr_tp_mult', 3.0)
+
+        if atr and atr > 0:
+            if side == 'long':
+                sl_price_abs = entry_price - atr_sl_mult * atr
+                tp_price_abs = entry_price + atr_tp_mult * atr
+            else:
+                sl_price_abs = entry_price + atr_sl_mult * atr
+                tp_price_abs = entry_price - atr_tp_mult * atr
+        else:
+            # Fallback: aus Signal (sollte nicht passieren)
+            sl_price_abs = signal['sl_price']
+            tp_price_abs = signal['tp_price']
+
+        idx = df.index[i]
+        entry_time = idx.isoformat() if hasattr(idx, 'isoformat') else str(idx)
         in_trade = True
         trade = {
-            'symbol':      symbol,
-            'side':        side,
-            'entry_time':  df.index[i].isoformat(),
-            'entry_price': entry_price,
-            'sl_price':    sl_price_abs,
-            'tp_price':    tp_price_abs,
-            'reason':      signal.get('reason', ''),
+            'symbol':        symbol,
+            'side':          side,
+            'entry_time':    entry_time,
+            'entry_price':   entry_price,
+            'sl_price':      sl_price_abs,
+            'tp_price':      tp_price_abs,
+            'atr':           round(atr, 6) if atr else None,
+            'entropy_drop':  signal.get('entropy_drop'),
+            'energy_rise':   signal.get('energy_rise'),
+            'reason':        signal.get('reason', ''),
         }
 
     # --- Statistiken ---
@@ -192,13 +211,13 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             'end_capital':    start_capital,
         }
 
-    wins    = sum(1 for t in trades if t['result'] == 'win')
-    losses  = len(trades) - wins
-    pnls    = [t['pnl_pct'] for t in trades]
+    wins   = sum(1 for t in trades if t['result'] == 'win')
+    losses = len(trades) - wins
+    pnls   = [t['pnl_pct'] for t in trades]
 
     # Drawdown
     cap_curve = [start_capital] + [t['capital_after'] for t in trades]
-    peak = cap_curve[0]
+    peak  = cap_curve[0]
     max_dd = 0.0
     for c in cap_curve:
         if c > peak:
