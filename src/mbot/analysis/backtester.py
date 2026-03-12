@@ -26,7 +26,7 @@ from mbot.strategy.momentum_logic import get_momentum_signal
 
 logger = logging.getLogger(__name__)
 
-MIN_CANDLES = 60  # Mindest-Kerzen fuer Signalberechnung
+MIN_CANDLES = 55  # Mindest-Kerzen fuer Signalberechnung (breakout_period max 50 + Buffer)
 
 
 def load_data(exchange_instance, symbol: str, timeframe: str,
@@ -149,7 +149,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             continue  # Wenn in Trade: keine neue Signal-Pruefung
 
         # --- Signal-Pruefung ---
-        window = df.iloc[max(0, i - 149):i + 1]  # Rolling window fuer Indikatoren
+        window = df.iloc[max(0, i - 59):i + 1]  # Rolling window (breakout_period max 50 + Buffer)
         signal = get_momentum_signal(window, signal_config)
 
         if signal['side'] is None:

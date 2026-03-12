@@ -127,10 +127,8 @@ def run_for_account(account: dict, telegram_config: dict,
         signal = get_momentum_signal(df, signal_config)
         logger.info(
             f"Signal-Check {symbol}: side={signal['side']} | "
-            f"Grund: {signal['reason']} | "
-            f"Koerper={signal['body_ratio']:.0%} "
-            f"Vol={signal['volume_multiplier']:.1f}x "
-            f"RSI={signal['rsi']:.0f}"
+            f"Koerper={signal['body_ratio']:.0%} | "
+            f"Grund: {signal['reason']}"
         )
 
         if signal['side'] is None:

@@ -10,21 +10,19 @@ Die Signal-Parameter (BB, Volumen, RSI) werden via **Optuna** auf historischen D
 
 ## Grundidee
 
-Der Bot lauert auf einen spezifischen Marktmoment:
+Der Bot wartet auf einen einzigen, klar definierten Moment:
 
 ```
-Konsolidierung (enge Bollinger Bands)
+Preis bricht das Hoch/Tief der letzten N Kerzen
     ↓
-Preisausbruch außerhalb der Bands
-    ↓
-Großer Kerzenkörper (≥ 55% der Gesamtrange) → Richtungsüberzeugung
-Hohes Volumen (≥ 1.4× Durchschnitt)          → Echter Schub, kein Fake-Out
-RSI-Filter                                    → Kein Chasing bei Extremwerten
+Bullische/bearische Kerze mit sauberem Körper (kein Wick-Spike)
     ↓
 Entry mit 20x Hebel + vollem verfügbaren Kapital
 SL = 0.1% Preisbewegung  → −2% Kontoverlust
 TP = 1.0% Preisbewegung  → +20% Kontogewinn
 ```
+
+**So simpel wie ein Hammer. Nur 2 Parameter.**
 
 **Nur ein Symbol handelt gleichzeitig.** Wer zuerst ein Signal liefert, tradet — alle anderen warten.
 Nach TP oder SL beginnt die Lauerjagd von vorne.
@@ -81,30 +79,32 @@ mbot/
 
 ## Signal-Logik
 
-### Bollinger Band Breakout
+### N-Bar Breakout (simpel wie ein Hammer)
 
 ```
-BB-Upper = SMA(20) + 2.0 × StdDev(20)
-BB-Lower = SMA(20) − 2.0 × StdDev(20)
-BB-Width = (BB-Upper − BB-Lower) / BB-Mid
+LONG:  close > max(high der letzten N Kerzen) UND bullische Kerze UND Körper ≥ X%
+SHORT: close < min(low  der letzten N Kerzen) UND bearische Kerze UND Körper ≥ X%
 ```
 
-**LONG-Signal** — alle Bedingungen müssen erfüllt sein:
+**Nur 2 Parameter:**
+
+| Parameter | Erklärung | Optimizer-Range |
+|---|---|---|
+| `breakout_period` | Wie viele Kerzen zurückschauen (Hoch/Tief-Referenz) | 5–50 |
+| `min_body_ratio` | Mindest-Kerzenkörper (50% = halbe Range muss Körper sein) | 0.40–0.80 |
+
+**LONG-Signal:**
 ```
-close > BB-Upper          ← Ausbruch über Oberband
-close > open              ← Bullische Kerze
-Kerzenkörper ≥ 55%        ← Sauber, keine großen Dochte
-Volumen ≥ 1.4× MA(20)     ← Echter Schub
-RSI ≤ 75                  ← Kein Chasing bei Überkauf
+close > max(high[-N-1:-1])   ← neues N-Bar-Hoch gebrochen
+close > open                 ← bullische Kerze
+Körper / Range ≥ min_body_ratio  ← sauber, kein Wick-Spike
 ```
 
-**SHORT-Signal** — gespiegelt:
+**SHORT-Signal:**
 ```
-close < BB-Lower          ← Ausbruch unter Unterband
-close < open              ← Bearische Kerze
-Kerzenkörper ≥ 55%        ← Sauber, keine großen Dochte
-Volumen ≥ 1.4× MA(20)     ← Echter Druck
-RSI ≥ 25                  ← Kein Chasing bei Überverkauf
+close < min(low[-N-1:-1])    ← neues N-Bar-Tief gebrochen
+close < open                 ← bearische Kerze
+Körper / Range ≥ min_body_ratio  ← sauber, kein Wick-Spike
 ```
 
 ### Beispiel-Signal
@@ -112,10 +112,7 @@ RSI ≥ 25                  ← Kein Chasing bei Überverkauf
 ```
 [Momentum Signal erkannt]
   Symbol:    BTC/USDT:USDT (15m)
-  Richtung:  LONG (Breakout nach Squeeze)
-  Körper:    78%  (sauber, wenig Dochte)
-  Volumen:   2.1× Durchschnitt
-  RSI:       61
+  Richtung:  LONG Breakout (20): close=43.250 > Hoch=43.180 | Körper=78%
 
   Entry:     43.250 USDT (Market Order)
   SL:        43.207 USDT (−0.1% Preis = −2.0% Konto)
@@ -241,9 +238,8 @@ master_runner.py startet (Cronjob)
 | `leverage` | Hebel (Standard: 20). |
 | `sl_account_pct` | Maximaler Kontoverlust pro Trade in % (Standard: 2.0). |
 | `tp_price_pct` | Take-Profit als Preisbewegung in % (Standard: 1.0). |
-| `bb_period` | Bollinger Bands Periode (Fallback wenn keine Config vorhanden). |
-| `min_body_ratio` | Mindest-Kerzenkörper als Anteil der Gesamtrange (Standard: 0.55 = 55%). |
-| `min_volume_multiplier` | Volumen muss X-faches des MA sein (Standard: 1.4). |
+| `breakout_period` | Anzahl Kerzen für Hoch/Tief-Referenz (Fallback wenn keine Config vorhanden). |
+| `min_body_ratio` | Mindest-Kerzenkörper als Anteil der Gesamtrange (Standard: 0.50 = 50%). |
 
 ---
 

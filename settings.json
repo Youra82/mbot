@@ -38,7 +38,7 @@
         "lookback_days": "auto",
         "start_capital": 1000,
         "cpu_cores": 1,
-        "num_trials": 200,
+        "num_trials": 100,
         "mode": "strict",
         "constraints": {
             "max_drawdown_pct": 30,
@@ -55,13 +55,7 @@
         "tp_price_pct": 1.0
     },
     "signal": {
-        "bb_period": 20,
-        "bb_std": 2.0,
-        "volume_ma_period": 20,
-        "min_body_ratio": 0.55,
-        "min_volume_multiplier": 1.4,
-        "rsi_period": 14,
-        "rsi_max_long": 75,
-        "rsi_min_short": 25
+        "breakout_period": 20,
+        "min_body_ratio": 0.50
     }
 }

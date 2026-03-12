@@ -47,14 +47,8 @@ def create_safe_filename(symbol: str, timeframe: str) -> str:
 def objective(trial):
     """Optuna-Zielfunktion: maximiert PnL% unter den konfigurierten Constraints."""
     signal_config = {
-        'bb_period':             trial.suggest_int('bb_period', 10, 50),
-        'bb_std':                trial.suggest_float('bb_std', 1.5, 3.0, step=0.1),
-        'volume_ma_period':      trial.suggest_int('volume_ma_period', 10, 30),
-        'min_body_ratio':        trial.suggest_float('min_body_ratio', 0.40, 0.80, step=0.05),
-        'min_volume_multiplier': trial.suggest_float('min_volume_multiplier', 1.0, 3.0, step=0.1),
-        'rsi_period':            trial.suggest_int('rsi_period', 7, 21),
-        'rsi_max_long':          trial.suggest_int('rsi_max_long', 60, 85),
-        'rsi_min_short':         trial.suggest_int('rsi_min_short', 15, 40),
+        'breakout_period': trial.suggest_int('breakout_period', 5, 50),
+        'min_body_ratio':  trial.suggest_float('min_body_ratio', 0.40, 0.80, step=0.05),
     }
 
     result = run_backtest(
@@ -214,14 +208,8 @@ def main():
 
         # Backtest mit besten Parametern fuer vollstaendige Metriken
         best_signal_config = {
-            'bb_period':             best_params['bb_period'],
-            'bb_std':                best_params['bb_std'],
-            'volume_ma_period':      best_params['volume_ma_period'],
-            'min_body_ratio':        best_params['min_body_ratio'],
-            'min_volume_multiplier': best_params['min_volume_multiplier'],
-            'rsi_period':            best_params['rsi_period'],
-            'rsi_max_long':          best_params['rsi_max_long'],
-            'rsi_min_short':         best_params['rsi_min_short'],
+            'breakout_period': best_params['breakout_period'],
+            'min_body_ratio':  best_params['min_body_ratio'],
         }
         final_result = run_backtest(
             HISTORICAL_DATA.copy(), best_signal_config, RISK_CONFIG,
@@ -274,10 +262,8 @@ def main():
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       bb_period={best_params['bb_period']} bb_std={best_params['bb_std']:.1f} "
-              f"body={best_params['min_body_ratio']:.2f} "
-              f"vol={best_params['min_volume_multiplier']:.1f}x "
-              f"rsi={best_params['rsi_period']}")
+        print(f"       breakout_period={best_params['breakout_period']} "
+              f"min_body_ratio={best_params['min_body_ratio']:.2f}")
 
         run_results['saved'].append({
             'symbol':      CURRENT_SYMBOL,
