@@ -54,9 +54,11 @@ def _simulate_portfolio(trades: list, start_capital: float) -> dict:
         if last_exit and entry_time <= last_exit:
             continue
 
-        # Kapital-gewichtete PnL (der Trade nutzt das aktuelle Kapital)
-        pnl_pct   = t.get('pnl_pct', 0.0)
-        pnl_usdt  = capital * pnl_pct / 100.0
+        # Kapital-gewichtete PnL – risk_per_trade_pct korrekt beruecksichtigen
+        pnl_pct          = t.get('pnl_pct', 0.0)
+        risk_per_trade   = t.get('risk_per_trade_pct', 100.0)
+        effective_capital = capital * risk_per_trade / 100.0
+        pnl_usdt  = effective_capital * pnl_pct / 100.0
         capital   = max(capital + pnl_usdt, 0.0)
         last_exit = exit_time
 

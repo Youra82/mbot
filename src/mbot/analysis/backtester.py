@@ -181,12 +181,13 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                 idx = df.index[i]
                 exit_time = idx.isoformat() if hasattr(idx, 'isoformat') else str(idx)
                 trade.update({
-                    'exit_price':    exit_p,
-                    'exit_time':     exit_time,
-                    'result':        result,
-                    'pnl_pct':       round(pnl_pct, 2),
-                    'pnl_usdt':      round(pnl_usdt, 2),
-                    'capital_after': round(capital, 2),
+                    'exit_price':         exit_p,
+                    'exit_time':          exit_time,
+                    'result':             result,
+                    'pnl_pct':            round(pnl_pct, 2),
+                    'pnl_usdt':           round(pnl_usdt, 2),
+                    'capital_after':      round(capital, 2),
+                    'risk_per_trade_pct': risk_per_trade_pct,
                 })
                 trades.append(trade)
                 in_trade = False
