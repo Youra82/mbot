@@ -29,6 +29,12 @@ CYAN   = '\033[0;36m'
 BOLD   = '\033[1m'
 NC     = '\033[0m'
 
+# Farb-Palette fuer ueberlagerte Equity-Kurven
+_EQUITY_COLORS = [
+    '#ffa726', '#e91e63', '#ab47bc', '#26c6da',
+    '#66bb6a', '#ff7043', '#42a5f5', '#d4e157',
+]
+
 
 def _load_all_configs() -> list:
     if not os.path.exists(CONFIGS_DIR):
@@ -206,6 +212,185 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     chart_path = os.path.join(CHARTS_DIR, f'chart_{safe_name}_{timeframe}_{ts}.html')
     fig.write_html(chart_path)
     return chart_path
+
+
+def generate_portfolio_chart(selected_results: dict, portfolio: dict,
+                             start_capital: float,
+                             start_date: str, end_date: str) -> str:
+    """
+    Generiert einen kombinierten Portfolio-Chart:
+    - Ueberlagerte Einzel-Equity-Kurven (linke Y-Achse)
+    - Portfolio-Equity (rechte Y-Achse, blau)
+    - Entry/TP/SL Marker auf Portfolio-Equity-Linie
+    - Unteres Panel: Trade-Timeline als Marker-Leiste
+    """
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError:
+        print(f'{RED}Fehler: plotly nicht installiert.{NC}')
+        return ''
+
+    port_trades  = portfolio.get('trades', [])
+    pnl_pct      = portfolio.get('total_pnl_pct', 0.0)
+    win_rate     = portfolio.get('win_rate', 0.0)
+    max_dd       = portfolio.get('max_drawdown', 0.0)
+    n_trades     = portfolio.get('total_trades', 0)
+    end_cap      = portfolio.get('end_capital', start_capital)
+
+    # Portfolio-Equity-Kurve aufbauen
+    port_times  = [start_date + 'T00:00:00'] + [t.get('exit_time', '') for t in port_trades]
+    port_equity = [start_capital] + [t.get('portfolio_capital_after', start_capital) for t in port_trades]
+
+    # Kapital-vor-Trade fuer Entry-Marker (linker Vorgaenger)
+    entry_equity = [start_capital] + [t.get('portfolio_capital_after', start_capital) for t in port_trades[:-1]]
+
+    # Titel
+    labels = []
+    for r in selected_results.values():
+        sym = r.get('symbol', '?').replace('/USDT:USDT', '').replace('/', '')
+        tf  = r.get('timeframe', '?')
+        labels.append(f'{sym}/{tf}')
+    title_text = (
+        f'mbot Portfolio — {len(selected_results)} Strategien ({", ".join(labels)}) | '
+        f'Trades: {n_trades} | WR: {win_rate:.1f}% | '
+        f'PnL: {pnl_pct:+.1f}% | Final Equity: {end_cap:.2f} USDT | MaxDD: {max_dd:.1f}%'
+    )
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        specs=[[{'secondary_y': True}], [{'secondary_y': False}]],
+        vertical_spacing=0.03,
+        row_heights=[0.85, 0.15],
+    )
+
+    # Einzel-Equity-Kurven (linke Y-Achse)
+    for i, (fn, r) in enumerate(selected_results.items()):
+        sym    = r.get('symbol', '?').replace('/USDT:USDT', '')
+        tf     = r.get('timeframe', '?')
+        trades = r.get('trades', [])
+        color  = _EQUITY_COLORS[i % len(_EQUITY_COLORS)]
+        eq_t   = [start_date + 'T00:00:00'] + [t.get('exit_time', '') for t in trades]
+        eq_v   = [start_capital] + [t.get('capital_after', start_capital) for t in trades]
+        fig.add_trace(go.Scatter(
+            x=eq_t, y=eq_v,
+            mode='lines',
+            line=dict(color=color, width=1.2),
+            name=f'{sym} {tf}',
+            hovertemplate=f'{sym} {tf}<br>Equity: %{{y:.2f}} USDT<extra></extra>',
+        ), row=1, col=1, secondary_y=False)
+
+    # Portfolio-Equity (rechte Y-Achse)
+    fig.add_trace(go.Scatter(
+        x=port_times, y=port_equity,
+        mode='lines',
+        line=dict(color='#5c9bd6', width=2),
+        name='Portfolio Equity',
+        hovertemplate='Portfolio: %{y:.2f} USDT<extra></extra>',
+    ), row=1, col=1, secondary_y=True)
+
+    # Entry-Marker
+    if port_trades:
+        fig.add_trace(go.Scatter(
+            x=[t.get('entry_time', '') for t in port_trades],
+            y=entry_equity,
+            mode='markers',
+            marker=dict(symbol='triangle-up', size=12, color='#26a69a',
+                        line=dict(color='#ffffff', width=0.5)),
+            name='Entry ▲',
+            hovertemplate='Entry<br>%{x}<extra></extra>',
+        ), row=1, col=1, secondary_y=True)
+
+    # Exit TP
+    tp_exits = [t for t in port_trades if t.get('result') == 'win']
+    if tp_exits:
+        fig.add_trace(go.Scatter(
+            x=[t.get('exit_time', '') for t in tp_exits],
+            y=[t.get('portfolio_capital_after', start_capital) for t in tp_exits],
+            mode='markers',
+            marker=dict(symbol='circle', size=11, color='#00bcd4',
+                        line=dict(color='#ffffff', width=0.5)),
+            name='Exit TP ✓',
+            hovertemplate='Exit TP<br>%{x}<br>PnL: %{customdata:.1f}%<extra></extra>',
+            customdata=[t.get('pnl_pct', 0) for t in tp_exits],
+        ), row=1, col=1, secondary_y=True)
+
+    # Exit SL
+    sl_exits = [t for t in port_trades if t.get('result') == 'loss']
+    if sl_exits:
+        fig.add_trace(go.Scatter(
+            x=[t.get('exit_time', '') for t in sl_exits],
+            y=[t.get('portfolio_capital_after', start_capital) for t in sl_exits],
+            mode='markers',
+            marker=dict(symbol='x', size=13, color='#ef5350',
+                        line=dict(color='#ef5350', width=2.5)),
+            name='Exit SL ✗',
+            hovertemplate='Exit SL<br>%{x}<br>PnL: %{customdata:.1f}%<extra></extra>',
+            customdata=[t.get('pnl_pct', 0) for t in sl_exits],
+        ), row=1, col=1, secondary_y=True)
+
+    # Unteres Panel: Trade-Timeline (alle Trades als Marker bei y=1)
+    for t in port_trades:
+        pass  # wird unten als Batch hinzugefuegt
+
+    if port_trades:
+        tp_t = [t.get('exit_time', '') for t in tp_exits]
+        sl_t = [t.get('exit_time', '') for t in sl_exits]
+        en_t = [t.get('entry_time', '') for t in port_trades]
+        if en_t:
+            fig.add_trace(go.Scatter(
+                x=en_t, y=[1] * len(en_t), mode='markers',
+                marker=dict(symbol='triangle-up', size=9, color='#26a69a'),
+                showlegend=False,
+                hovertemplate='Entry<br>%{x}<extra></extra>',
+            ), row=2, col=1)
+        if tp_t:
+            fig.add_trace(go.Scatter(
+                x=tp_t, y=[1] * len(tp_t), mode='markers',
+                marker=dict(symbol='circle', size=8, color='#00bcd4'),
+                showlegend=False,
+                hovertemplate='Exit TP<br>%{x}<extra></extra>',
+            ), row=2, col=1)
+        if sl_t:
+            fig.add_trace(go.Scatter(
+                x=sl_t, y=[1] * len(sl_t), mode='markers',
+                marker=dict(symbol='x', size=9, color='#ef5350',
+                            line=dict(width=2)),
+                showlegend=False,
+                hovertemplate='Exit SL<br>%{x}<extra></extra>',
+            ), row=2, col=1)
+
+    # Start-Annotation
+    fig.add_annotation(
+        x=start_date + 'T00:00:00', y=start_capital,
+        text=f'Start {start_capital:.0f} USDT',
+        showarrow=False, font=dict(size=10, color='#aaa'),
+        xref='x', yref='y', xanchor='left', yanchor='bottom',
+    )
+
+    fig.update_layout(
+        title=dict(text=title_text, font=dict(size=11), x=0.5, xanchor='center'),
+        template='plotly_dark',
+        xaxis_rangeslider_visible=False,
+        xaxis2_rangeslider_visible=False,
+        legend=dict(orientation='h', yanchor='bottom', y=1.01,
+                    xanchor='center', x=0.5, font=dict(size=10)),
+        height=720,
+        margin=dict(l=70, r=80, t=80, b=40),
+        yaxis=dict(title='Einzel-Equity (USDT)'),
+        yaxis2=dict(title='Portfolio-Equity (USDT)', showgrid=False,
+                    tickfont=dict(color='#5c9bd6'),
+                    title_font=dict(color='#5c9bd6')),
+        yaxis3=dict(visible=False),  # unteres Panel ohne Y-Achse
+    )
+    fig.update_yaxes(visible=False, row=2, col=1)
+
+    os.makedirs(CHARTS_DIR, exist_ok=True)
+    ts   = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = os.path.join(CHARTS_DIR, f'mbot_portfolio_{ts}.html')
+    fig.write_html(path)
+    return path
 
 
 def run_interactive_chart():

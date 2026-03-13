@@ -380,33 +380,31 @@ def mode_auto_portfolio(target_max_dd):
     else:
         print(f'{YELLOW}  Keine Aenderungen an settings.json vorgenommen.{NC}')
 
-    # Interaktive Charts
-    raw = input(f'\n  Interaktive Charts fuer diese Zusammenstellung erstellen & via Telegram senden? (j/n): ').strip().lower()
+    # Portfolio-Chart
+    raw = input(f'\n  Interaktiver Portfolio-Chart erstellen & via Telegram senden? (j/n): ').strip().lower()
     if raw in ('j', 'y', 'ja', 'yes'):
-        from mbot.analysis.interactive_chart import _generate_chart, _send_charts_via_telegram
-        from mbot.utils.exchange import Exchange
+        from mbot.analysis.interactive_chart import generate_portfolio_chart, _send_charts_via_telegram
+        from mbot.analysis.portfolio_simulator import run_portfolio_simulation
         with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
             secrets = json.load(f)
-        accounts  = secrets.get('mbot', [])
         tg        = secrets.get('telegram', {})
         bot_token = tg.get('bot_token', '')
         chat_id   = tg.get('chat_id', '')
-        exch      = Exchange(accounts[0])
-        generated = []
-        for fn in best['selected']:
-            r          = results[fn]
-            sym        = r.get('symbol', '?')
-            tf         = r.get('timeframe', '?')
-            cfg        = next((c for c in configs if c.get('_filename') == fn), {})
-            sig_cfg    = cfg.get('signal', {})
-            print(f'  Erstelle Chart: {sym} ({tf})...')
-            path = _generate_chart(exch, sym, tf, start_date, end_date,
-                                   start_capital, sig_cfg, risk_config)
-            if path:
-                generated.append(path)
-                if bot_token and chat_id:
-                    _send_charts_via_telegram([path], bot_token, chat_id)
-        print(f'{GREEN}  ✓ {len(generated)} Chart(s) erstellt & gesendet.{NC}')
+
+        selected_results = {fn: results[fn] for fn in best['selected']}
+        # Portfolio neu simulieren um portfolio_capital_after in Trades zu haben
+        portfolio_with_trades = run_portfolio_simulation(selected_results, start_capital)
+
+        print(f'  Erstelle Portfolio-Chart...')
+        path = generate_portfolio_chart(
+            selected_results, portfolio_with_trades,
+            start_capital, start_date, end_date,
+        )
+        if path:
+            print(f'{GREEN}  ✓ Portfolio-Chart erstellt: {path}{NC}')
+            if bot_token and chat_id:
+                _send_charts_via_telegram([path], bot_token, chat_id)
+                print(f'{GREEN}  ✓ Via Telegram gesendet.{NC}')
 
 
 def _print_portfolio_result(portfolio, label):
