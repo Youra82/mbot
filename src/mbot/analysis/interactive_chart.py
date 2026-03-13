@@ -351,16 +351,18 @@ def run_interactive_chart():
 
 
 def _send_charts_via_telegram(chart_paths: list, bot_token: str, chat_id: str):
-    """Sendet HTML-Pfade als Nachricht per Telegram (HTML kann nicht direkt gesendet werden)."""
+    """Sendet HTML-Charts als Datei-Download per Telegram (sendDocument)."""
     import requests
     for path in chart_paths:
         filename = os.path.basename(path)
-        msg = f'📊 mbot Chart generiert:\n`{filename}`\n\nPfad: `{path}`'
+        caption  = f'📊 Chart: {filename.replace("chart_", "").replace(".html", "")}'
         try:
-            requests.post(
-                f'https://api.telegram.org/bot{bot_token}/sendMessage',
-                json={'chat_id': chat_id, 'text': msg, 'parse_mode': 'Markdown'},
-                timeout=10,
-            )
+            with open(path, 'rb') as f:
+                requests.post(
+                    f'https://api.telegram.org/bot{bot_token}/sendDocument',
+                    data={'chat_id': chat_id, 'caption': caption},
+                    files={'document': (filename, f, 'text/html')},
+                    timeout=60,
+                )
         except Exception as e:
             print(f'  Telegram-Fehler: {e}')
