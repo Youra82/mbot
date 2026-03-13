@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "signal": {
+        "risk_per_trade_pct": 19.0,
+        "leverage": 14,
+        "entropy_window": 28,
+        "entropy_lookback": 14,
+        "energy_lookback": 5,
+        "min_entropy_drop_pct": 0.09,
+        "min_energy_rise_pct": 0.7500000000000001,
+        "atr_period": 18,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 3.75,
+        "use_regime_filter": 1,
+        "regime_window": 35,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 7,
+        "macro_tf_mult": 11
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 590.41,
+        "win_rate": 27.0,
+        "total_trades": 37,
+        "max_drawdown": 19.8,
+        "start_capital": 15.0,
+        "end_capital": 103.56,
+        "optimized_at": "2026-03-13T18:34:03",
+        "mode": "best_profit",
+        "start_date": "2023-03-14",
+        "end_date": "2026-03-13"
+    }
+}

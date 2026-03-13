@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "DOGE/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "signal": {
+        "risk_per_trade_pct": 7.0,
+        "leverage": 17,
+        "entropy_window": 39,
+        "entropy_lookback": 19,
+        "energy_lookback": 9,
+        "min_entropy_drop_pct": 0.01,
+        "min_energy_rise_pct": 0.45,
+        "atr_period": 7,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 1.25,
+        "use_regime_filter": 0,
+        "regime_window": 13,
+        "allow_range_trade": 0,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 5,
+        "macro_tf_mult": 19
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 460.79,
+        "win_rate": 41.7,
+        "total_trades": 96,
+        "max_drawdown": 28.7,
+        "start_capital": 15.0,
+        "end_capital": 84.12,
+        "optimized_at": "2026-03-13T19:51:28",
+        "mode": "best_profit",
+        "start_date": "2023-03-14",
+        "end_date": "2026-03-13"
+    }
+}

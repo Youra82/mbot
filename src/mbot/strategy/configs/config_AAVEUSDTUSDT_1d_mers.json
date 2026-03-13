@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "AAVE/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "signal": {
+        "risk_per_trade_pct": 7.0,
+        "leverage": 4,
+        "entropy_window": 55,
+        "entropy_lookback": 21,
+        "energy_lookback": 17,
+        "min_entropy_drop_pct": 0.02,
+        "min_energy_rise_pct": 0.6000000000000001,
+        "atr_period": 25,
+        "atr_sl_mult": 2.25,
+        "atr_tp_mult": 5.0,
+        "use_regime_filter": 1,
+        "regime_window": 25,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 7,
+        "macro_tf_mult": 25
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 81.58,
+        "win_rate": 55.0,
+        "total_trades": 20,
+        "max_drawdown": 9.66,
+        "start_capital": 15.0,
+        "end_capital": 27.24,
+        "optimized_at": "2026-03-13T19:34:27",
+        "mode": "best_profit",
+        "start_date": "2023-03-14",
+        "end_date": "2026-03-13"
+    }
+}
