@@ -72,13 +72,6 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
                           start_capital=start_capital, symbol=symbol)
     trades = result.get('trades', [])
 
-    # Bollinger Bands berechnen
-    bb_period = signal_config.get('bb_period', 20)
-    bb_std    = signal_config.get('bb_std', 2.0)
-    df['bb_mid']   = df['close'].rolling(bb_period).mean()
-    df['bb_upper'] = df['bb_mid'] + bb_std * df['close'].rolling(bb_period).std()
-    df['bb_lower'] = df['bb_mid'] - bb_std * df['close'].rolling(bb_period).std()
-
     # Equity-Kurve
     cap_curve_times = [df.index[0].isoformat()]
     cap_curve_vals  = [start_capital]
@@ -86,133 +79,124 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         cap_curve_times.append(t.get('exit_time', ''))
         cap_curve_vals.append(t.get('capital_after', start_capital))
 
-    # Figur erstellen
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-        subplot_titles=(f'{symbol} ({timeframe}) — Candlestick + Trades',
-                        'Equity-Kurve (USDT)'),
-        row_heights=[0.7, 0.3],
-    )
-
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['open'], high=df['high'],
-        low=df['low'],   close=df['close'],
-        name='Preis',
-        increasing_line_color='#26a69a',
-        decreasing_line_color='#ef5350',
-    ), row=1, col=1)
-
-    # Bollinger Bands
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df['bb_upper'],
-        line=dict(color='rgba(100,149,237,0.6)', width=1, dash='dot'),
-        name='BB Upper',
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df['bb_lower'],
-        line=dict(color='rgba(100,149,237,0.6)', width=1, dash='dot'),
-        name='BB Lower',
-        fill='tonexty',
-        fillcolor='rgba(100,149,237,0.05)',
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df['bb_mid'],
-        line=dict(color='rgba(100,149,237,0.4)', width=1),
-        name='BB Mid',
-    ), row=1, col=1)
-
-    # Trade-Marker
-    long_entries  = [t for t in trades if t.get('side') == 'long']
-    short_entries = [t for t in trades if t.get('side') == 'short']
-    wins   = [t for t in trades if t.get('result') == 'win']
-    losses = [t for t in trades if t.get('result') == 'loss']
-
-    if long_entries:
-        fig.add_trace(go.Scatter(
-            x=[t['entry_time'] for t in long_entries],
-            y=[t['entry_price'] for t in long_entries],
-            mode='markers',
-            marker=dict(symbol='triangle-up', size=10, color='#26a69a'),
-            name='Long Entry',
-            hovertemplate='Long Entry<br>Preis: %{y:.4f}<extra></extra>',
-        ), row=1, col=1)
-
-    if short_entries:
-        fig.add_trace(go.Scatter(
-            x=[t['entry_time'] for t in short_entries],
-            y=[t['entry_price'] for t in short_entries],
-            mode='markers',
-            marker=dict(symbol='triangle-down', size=10, color='#ef5350'),
-            name='Short Entry',
-            hovertemplate='Short Entry<br>Preis: %{y:.4f}<extra></extra>',
-        ), row=1, col=1)
-
-    if wins:
-        fig.add_trace(go.Scatter(
-            x=[t['exit_time'] for t in wins],
-            y=[t['exit_price'] for t in wins],
-            mode='markers',
-            marker=dict(symbol='star', size=10, color='#ffd700'),
-            name='Exit Win',
-            hovertemplate='Win Exit<br>Preis: %{y:.4f}<extra></extra>',
-        ), row=1, col=1)
-
-    if losses:
-        fig.add_trace(go.Scatter(
-            x=[t['exit_time'] for t in losses],
-            y=[t['exit_price'] for t in losses],
-            mode='markers',
-            marker=dict(symbol='x', size=10, color='#ff6b6b'),
-            name='Exit Loss',
-            hovertemplate='Loss Exit<br>Preis: %{y:.4f}<extra></extra>',
-        ), row=1, col=1)
-
-    # Equity-Kurve
-    fig.add_trace(go.Scatter(
-        x=cap_curve_times,
-        y=cap_curve_vals,
-        mode='lines+markers',
-        line=dict(color='#64b5f6', width=2),
-        marker=dict(size=4),
-        name='Kapital',
-        fill='tozeroy',
-        fillcolor='rgba(100,181,246,0.1)',
-    ), row=2, col=1)
-
-    # Statistik-Annotation
+    # Statistik
     pnl_pct  = result.get('total_pnl_pct', 0.0)
     win_rate = result.get('win_rate', 0.0)
     max_dd   = result.get('max_drawdown', 0.0)
     n_trades = result.get('total_trades', 0)
     end_cap  = result.get('end_capital', start_capital)
 
-    annotation_text = (
+    # Figur: oben Preis + Equity (rechte Y-Achse), unten Volumen
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        specs=[[{'secondary_y': True}], [{'secondary_y': False}]],
+        vertical_spacing=0.03,
+        row_heights=[0.82, 0.18],
+    )
+
+    # OHLC Candlestick
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['open'], high=df['high'],
+        low=df['low'],   close=df['close'],
+        name='OHLC',
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350',
+        showlegend=True,
+    ), row=1, col=1, secondary_y=False)
+
+    # Trade-Marker
+    long_entries  = [t for t in trades if t.get('side') == 'long']
+    short_entries = [t for t in trades if t.get('side') == 'short']
+    tp_exits      = [t for t in trades if t.get('result') == 'win']
+    sl_exits      = [t for t in trades if t.get('result') == 'loss']
+
+    if long_entries:
+        fig.add_trace(go.Scatter(
+            x=[t['entry_time'] for t in long_entries],
+            y=[t['entry_price'] for t in long_entries],
+            mode='markers',
+            marker=dict(symbol='triangle-up', size=11, color='#26a69a',
+                        line=dict(color='#ffffff', width=0.5)),
+            name='Entry Long',
+            hovertemplate='Entry Long<br>%{x}<br>Preis: %{y:.4f}<extra></extra>',
+        ), row=1, col=1, secondary_y=False)
+
+    if short_entries:
+        fig.add_trace(go.Scatter(
+            x=[t['entry_time'] for t in short_entries],
+            y=[t['entry_price'] for t in short_entries],
+            mode='markers',
+            marker=dict(symbol='triangle-down', size=11, color='#ffa726',
+                        line=dict(color='#ffffff', width=0.5)),
+            name='Entry Short',
+            hovertemplate='Entry Short<br>%{x}<br>Preis: %{y:.4f}<extra></extra>',
+        ), row=1, col=1, secondary_y=False)
+
+    if tp_exits:
+        fig.add_trace(go.Scatter(
+            x=[t['exit_time'] for t in tp_exits],
+            y=[t['exit_price'] for t in tp_exits],
+            mode='markers',
+            marker=dict(symbol='circle', size=9, color='#00bcd4',
+                        line=dict(color='#ffffff', width=0.5)),
+            name='Exit TP ✓',
+            hovertemplate='Exit TP<br>%{x}<br>Preis: %{y:.4f}<br>PnL: %{customdata:.2f}%<extra></extra>',
+            customdata=[t.get('pnl_pct', 0) for t in tp_exits],
+        ), row=1, col=1, secondary_y=False)
+
+    if sl_exits:
+        fig.add_trace(go.Scatter(
+            x=[t['exit_time'] for t in sl_exits],
+            y=[t['exit_price'] for t in sl_exits],
+            mode='markers',
+            marker=dict(symbol='x', size=10, color='#ef5350',
+                        line=dict(color='#ef5350', width=2)),
+            name='Exit SL ✗',
+            hovertemplate='Exit SL<br>%{x}<br>Preis: %{y:.4f}<br>PnL: %{customdata:.2f}%<extra></extra>',
+            customdata=[t.get('pnl_pct', 0) for t in sl_exits],
+        ), row=1, col=1, secondary_y=False)
+
+    # Equity-Kurve auf rechter Y-Achse
+    fig.add_trace(go.Scatter(
+        x=cap_curve_times,
+        y=cap_curve_vals,
+        mode='lines',
+        line=dict(color='#5c9bd6', width=1.5),
+        name='Equity',
+        hovertemplate='Equity: %{y:.2f} USDT<extra></extra>',
+    ), row=1, col=1, secondary_y=True)
+
+    # Volumen (unteres Panel)
+    if 'volume' in df.columns:
+        vol_colors = ['#26a69a' if c >= o else '#ef5350'
+                      for c, o in zip(df['close'], df['open'])]
+        fig.add_trace(go.Bar(
+            x=df.index, y=df['volume'],
+            marker_color=vol_colors,
+            name='Volumen',
+            showlegend=False,
+            opacity=0.6,
+        ), row=2, col=1)
+
+    title_text = (
+        f'{symbol} {timeframe} — MDEF-MERS | '
         f'Trades: {n_trades} | WR: {win_rate:.1f}% | '
-        f'PnL: {pnl_pct:+.2f}% | MaxDD: {max_dd:.1f}% | '
-        f'End: {end_cap:.2f} USDT'
+        f'PnL: {pnl_pct:+.1f}% | MaxDD: {max_dd:.1f}%'
     )
 
     fig.update_layout(
-        title=dict(
-            text=f'mbot Chart — {symbol} ({timeframe}) | {start_date} bis {end_date}',
-            font=dict(size=16),
-        ),
-        annotations=[dict(
-            text=annotation_text,
-            xref='paper', yref='paper',
-            x=0.0, y=1.02,
-            showarrow=False,
-            font=dict(size=12, color='#aaa'),
-        )],
+        title=dict(text=title_text, font=dict(size=13), x=0.5, xanchor='center'),
         template='plotly_dark',
         xaxis_rangeslider_visible=False,
-        legend=dict(orientation='h', yanchor='bottom', y=1.04, xanchor='right', x=1),
-        height=900,
-        margin=dict(l=60, r=20, t=120, b=40),
+        xaxis2_rangeslider_visible=False,
+        legend=dict(orientation='h', yanchor='bottom', y=1.01,
+                    xanchor='center', x=0.5, font=dict(size=11)),
+        height=820,
+        margin=dict(l=60, r=70, t=80, b=40),
+        yaxis2=dict(title='Equity (USDT)', showgrid=False,
+                    tickfont=dict(color='#5c9bd6'), title_font=dict(color='#5c9bd6')),
     )
 
     # Speichern
