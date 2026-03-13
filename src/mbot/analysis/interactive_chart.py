@@ -150,9 +150,9 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     )
 
     # --- Regime-Hintergrund (Candlestick-Panel) ---
-    _regime_fill = {'trend': 'rgba(38,166,154,0.22)',
-                    'range': 'rgba(255,167,38,0.18)',
-                    'chaos': 'rgba(239,83,80,0.22)'}
+    _regime_fill = {'trend': 'rgba(38,166,154,0.35)',
+                    'range': 'rgba(255,167,38,0.28)',
+                    'chaos': 'rgba(239,83,80,0.35)'}
     prev_reg, blk_start = None, None
     for i, (ts_idx, reg) in enumerate(zip(df.index, regimes)):
         if reg != prev_reg:
@@ -347,7 +347,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     fig.update_yaxes(title_text='Preis', row=1, col=1)
     fig.update_yaxes(title_text='Vol',   row=2, col=1)
     fig.update_yaxes(title_text='H',     row=3, col=1, tickformat='.3f')
-    fig.update_yaxes(title_text='E',     row=4, col=1, tickformat='.5f')
+    fig.update_yaxes(title_text='E',     row=4, col=1, type='log')
     fig.update_yaxes(title_text='ATR',   row=5, col=1)
 
     # Speichern
