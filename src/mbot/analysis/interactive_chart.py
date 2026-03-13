@@ -14,6 +14,7 @@ import sys
 import json
 import webbrowser
 from datetime import datetime, timezone
+import pandas as pd
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
