@@ -7,6 +7,7 @@ Die Risiko-Parameter (Hebel 20x, Margin-Mode) sind fest vorgegeben.
 SL/TP werden ATR-basiert durch atr_sl_mult / atr_tp_mult gesteuert.
 
 Optimierte Parameter:
+  risk_per_trade_pct   : Anteil des Kapitals pro Trade (1-100%)
   entropy_window       : Rollierendes Fenster fuer Shannon Entropy (10-60)
   entropy_lookback     : Rueckschau fuer Entropy-Vergleich (3-25)
   energy_lookback      : Rueckschau fuer Energie-Vergleich (3-25)
@@ -46,6 +47,7 @@ START_CAPITAL           = 1000.0
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 50.0
 MIN_PNL_CONSTRAINT      = 0.0
+MIN_TRADES_CONSTRAINT   = 5
 OPTIM_MODE              = 'strict'
 
 RESULTS_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'results', 'last_optimizer_run.json')
@@ -57,6 +59,9 @@ def create_safe_filename(symbol: str, timeframe: str) -> str:
 
 def objective(trial):
     """Optuna-Zielfunktion: maximiert PnL% unter den konfigurierten Constraints."""
+    # --- Kapital-Risiko pro Trade ---
+    risk_per_trade_pct = trial.suggest_float('risk_per_trade_pct', 1.0, 100.0, step=1.0)
+
     # --- Kern-MERS Parameter ---
     entropy_window   = trial.suggest_int(  'entropy_window',       10,  60)
     entropy_lookback = trial.suggest_int(  'entropy_lookback',      3,  25)
@@ -80,6 +85,7 @@ def objective(trial):
     macro_tf_mult      = trial.suggest_int('macro_tf_mult',      8, 32)
 
     signal_config = {
+        'risk_per_trade_pct':   risk_per_trade_pct,
         'entropy_window':       entropy_window,
         'entropy_lookback':     entropy_lookback,
         'energy_lookback':      energy_lookback,
@@ -113,7 +119,7 @@ def objective(trial):
         if (drawdown > MAX_DRAWDOWN_CONSTRAINT * 100
                 or win_rate < MIN_WIN_RATE_CONSTRAINT
                 or pnl < MIN_PNL_CONSTRAINT
-                or trades < 5):
+                or trades < MIN_TRADES_CONSTRAINT):
             raise optuna.exceptions.TrialPruned()
     elif OPTIM_MODE == 'best_profit':
         if trades == 0:
@@ -128,7 +134,7 @@ def objective(trial):
 def main():
     global HISTORICAL_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
     global START_CAPITAL, MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
-    global MIN_PNL_CONSTRAINT, OPTIM_MODE
+    global MIN_PNL_CONSTRAINT, MIN_TRADES_CONSTRAINT, OPTIM_MODE
 
     parser = argparse.ArgumentParser(description='mbot MERS Parameter Optimizer')
     parser.add_argument('--symbols',       type=str, required=True,
@@ -147,6 +153,8 @@ def main():
                         help='Minimale Win-Rate in % (z.B. 50)')
     parser.add_argument('--min_pnl',       type=float, default=0.0,
                         help='Minimaler PnL in % (z.B. 0)')
+    parser.add_argument('--min_trades',    type=int,   default=5,
+                        help='Minimale Anzahl Trades fuer gueltigen Trial (z.B. 5)')
     parser.add_argument('--mode',          type=str,   default='strict',
                         choices=['strict', 'best_profit'])
     args = parser.parse_args()
@@ -154,6 +162,7 @@ def main():
     MAX_DRAWDOWN_CONSTRAINT = args.max_drawdown / 100.0
     MIN_WIN_RATE_CONSTRAINT = args.min_win_rate
     MIN_PNL_CONSTRAINT      = args.min_pnl
+    MIN_TRADES_CONSTRAINT   = args.min_trades
     START_CAPITAL           = args.start_capital
     OPTIM_MODE              = args.mode
 
@@ -240,9 +249,26 @@ def main():
             })
             continue
 
-        valid_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        # --- Trial-Statistiken ---
+        all_trials     = study.trials
+        completed      = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
+        pruned         = [t for t in all_trials if t.state == optuna.trial.TrialState.PRUNED]
+        print(f"  Trials: {len(all_trials)} gesamt | "
+              f"{len(completed)} abgeschlossen | "
+              f"{len(pruned)} pruned")
+
+        valid_trials = completed
         if not valid_trials:
-            print(f"  Keine gueltigen Trials gefunden (alle pruned). Constraints evtl. zu streng.")
+            hint = ""
+            if OPTIM_MODE == 'strict':
+                hint = (f"  Tipp: MaxDD ({args.max_drawdown}%) oder MinWR ({args.min_win_rate}%) "
+                        f"zu streng, oder zu wenig Trades (min={args.min_trades}). "
+                        f"Modus 2 (best_profit) versuchen oder Constraints lockern.")
+            else:
+                hint = (f"  Tipp: MERS generiert keine Signale fuer {CURRENT_SYMBOL} ({CURRENT_TIMEFRAME}). "
+                        f"Kuerzeren Timeframe (z.B. 4h statt 1d) oder mehr Trials versuchen.")
+            print(f"  Keine gueltigen Trials gefunden (alle pruned).")
+            print(hint)
             run_results['failed'].append({
                 'symbol': CURRENT_SYMBOL, 'timeframe': CURRENT_TIMEFRAME,
                 'reason': 'no_valid_trials',
@@ -254,6 +280,7 @@ def main():
         best_pnl    = best_trial.value
 
         best_signal_config = {
+            'risk_per_trade_pct':   best_params['risk_per_trade_pct'],
             'entropy_window':       best_params['entropy_window'],
             'entropy_lookback':     best_params['entropy_lookback'],
             'energy_lookback':      best_params['energy_lookback'],
@@ -318,11 +345,13 @@ def main():
         with open(config_file, 'w') as f:
             json.dump(config_output, f, indent=4)
 
+        rtp = best_params['risk_per_trade_pct']
         print(f"\n  [OK] Beste MERS Config gespeichert: config_{safe_name}_mers.json")
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       entropy_window={best_params['entropy_window']} "
+        print(f"       risk_per_trade={rtp:.0f}% "
+              f"entropy_window={best_params['entropy_window']} "
               f"entropy_lookback={best_params['entropy_lookback']} "
               f"energy_lookback={best_params['energy_lookback']}")
         print(f"       min_entropy_drop={best_params['min_entropy_drop_pct']:.2f} "

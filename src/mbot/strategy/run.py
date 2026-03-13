@@ -95,8 +95,13 @@ def run_for_account(account: dict, telegram_config: dict,
         with open(config_path, 'r') as cf:
             loaded_cfg = json.load(cf)
         signal_config = loaded_cfg.get('signal', {})
+        # risk_per_trade_pct aus Config in risk_config uebernehmen (Config hat Vorrang)
+        if 'risk_per_trade_pct' in signal_config:
+            risk_config = dict(risk_config)
+            risk_config['risk_per_trade_pct'] = signal_config['risk_per_trade_pct']
         logger.info(f"Config geladen: config_{safe_name}_mers.json "
-                    f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}%)")
+                    f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}% | "
+                    f"Risk/Trade: {risk_config.get('risk_per_trade_pct', 100):.0f}%)")
     else:
         signal_config = settings.get('signal', {})
         logger.warning(f"Keine MERS-Config gefunden fuer {symbol} ({timeframe}). "

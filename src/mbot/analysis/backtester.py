@@ -92,7 +92,9 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
 
     Returns dict mit allen Ergebnissen.
     """
-    leverage = int(risk_config.get('leverage', 20))
+    leverage           = int(risk_config.get('leverage', 20))
+    risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
+                               risk_config.get('risk_per_trade_pct', 100.0)))
 
     capital  = start_capital
     trades   = []
@@ -131,7 +133,8 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                 else:
                     pnl_pct = (entry - exit_p) / entry * leverage * 100
 
-                pnl_usdt = capital * pnl_pct / 100
+                effective_capital = capital * risk_per_trade_pct / 100.0
+                pnl_usdt = effective_capital * pnl_pct / 100
                 capital  = max(capital + pnl_usdt, 0.0)
 
                 idx = df.index[i]

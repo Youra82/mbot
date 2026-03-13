@@ -125,14 +125,16 @@ def calculate_sl_tp_prices(entry_price: float, side: str,
 
 
 def calculate_contracts(balance_usdt: float, leverage: int,
-                          entry_price: float, min_amount: float) -> float:
+                          entry_price: float, min_amount: float,
+                          risk_per_trade_pct: float = 100.0) -> float:
     """
     Berechnet die Kontraktanzahl fuer den Trade.
-    Verwendet das VOLLE verfuegbare Kapital.
+    risk_per_trade_pct: Anteil des Kapitals der riskiert wird (z.B. 10.0 = 10%).
     """
-    position_value = balance_usdt * leverage  # z.B. 100 USDT * 20 = 2000 USDT
-    contracts = position_value / entry_price
-    contracts = max(contracts, min_amount)
+    effective_balance = balance_usdt * risk_per_trade_pct / 100.0
+    position_value    = effective_balance * leverage
+    contracts         = position_value / entry_price
+    contracts         = max(contracts, min_amount)
     return contracts
 
 
@@ -149,11 +151,12 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
 
     Returns True wenn Trade erfolgreich platziert.
     """
-    side          = signal['side']
-    leverage      = int(risk_config.get('leverage', 20))
-    margin_mode   = risk_config.get('margin_mode', 'isolated')
-    sl_account_pct = float(risk_config.get('sl_account_pct', 2.0))
-    tp_price_pct   = float(risk_config.get('tp_price_pct', 1.0))
+    side               = signal['side']
+    leverage           = int(risk_config.get('leverage', 20))
+    margin_mode        = risk_config.get('margin_mode', 'isolated')
+    sl_account_pct     = float(risk_config.get('sl_account_pct', 2.0))
+    tp_price_pct       = float(risk_config.get('tp_price_pct', 1.0))
+    risk_per_trade_pct = float(risk_config.get('risk_per_trade_pct', 100.0))
 
     # --- Kapital abrufen ---
     balance = exchange.fetch_balance_usdt()
@@ -169,7 +172,8 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     entry_side = 'buy' if side == 'long' else 'sell'
     min_amount = exchange.fetch_min_amount_tradable(symbol)
     current_price = signal['entry_price']
-    contracts = calculate_contracts(balance, leverage, current_price, min_amount)
+    contracts = calculate_contracts(balance, leverage, current_price, min_amount,
+                                    risk_per_trade_pct)
 
     # Notional-Check
     notional = contracts * current_price
