@@ -116,8 +116,11 @@ def objective(trial):
                 or trades < 5):
             raise optuna.exceptions.TrialPruned()
     elif OPTIM_MODE == 'best_profit':
-        if drawdown > MAX_DRAWDOWN_CONSTRAINT * 100 or trades < 3:
+        if trades == 0:
             raise optuna.exceptions.TrialPruned()
+        # Composite Score: belohnt PnL, bestraft Drawdown ueber Limit
+        dd_penalty = max(0.0, drawdown - MAX_DRAWDOWN_CONSTRAINT * 100) * 3.0
+        return pnl - dd_penalty
 
     return pnl
 

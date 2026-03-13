@@ -65,7 +65,7 @@ if [ "$OPTIM_MODE" == "1" ]; then
     read -p "Min PnL %      [Standard: 0]:  " MIN_PNL; MIN_PNL=${MIN_PNL:-0}
 else
     OPTIM_MODE_ARG="best_profit"
-    read -p "Max Drawdown % [Standard: 30]: " MAX_DD; MAX_DD=${MAX_DD:-30}
+    read -p "Max Drawdown % [Standard: 80]: " MAX_DD; MAX_DD=${MAX_DD:-80}
     MIN_WR=0; MIN_PNL=-99999
 fi
 
