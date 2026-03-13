@@ -113,10 +113,10 @@ def objective(trial):
         if (drawdown > MAX_DRAWDOWN_CONSTRAINT * 100
                 or win_rate < MIN_WIN_RATE_CONSTRAINT
                 or pnl < MIN_PNL_CONSTRAINT
-                or trades < 10):
+                or trades < 5):
             raise optuna.exceptions.TrialPruned()
     elif OPTIM_MODE == 'best_profit':
-        if drawdown > MAX_DRAWDOWN_CONSTRAINT * 100 or trades < 10:
+        if drawdown > MAX_DRAWDOWN_CONSTRAINT * 100 or trades < 3:
             raise optuna.exceptions.TrialPruned()
 
     return pnl
