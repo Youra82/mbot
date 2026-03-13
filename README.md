@@ -1,6 +1,14 @@
 # mbot — MDEF-MERS Hybrid Trading Bot
 
-Ein mathematisch fundierter Trading-Bot basierend auf **Signalverarbeitung**, **Phasenraum-Dynamik** und **Shannon-Entropy**. Der Bot betrachtet den Markt nicht als Preisdiagramm, sondern als dynamisches System — und handelt nur in geordneten, trendenden Regimen.
+Bevor ein starker Trend beginnt, verrät der Markt es — **wenn man auf die richtigen Signale achtet.**
+
+mbot hört nicht auf Kerzenformationen oder gleitende Durchschnitte. Er misst stattdessen drei Dinge, die klassische Indikatoren ignorieren: **Wie geordnet ist der Markt gerade? Baut sich gerade Energie auf? Und in welche Richtung beschleunigt der Preis?**
+
+Das Konzept stammt aus der Informationstheorie und Physik — und lässt sich trotzdem einfach erklären:
+
+> Stell dir vor, du beobachtest BTC/USDT auf dem 1h-Chart. Die letzten 20 Stunden: chaotisches Hin und Her — rauf, runter, keine klare Richtung. Plötzlich werden die Schwankungen kleiner und gleichmäßiger, der Preis zieht ruhig aber beständig nach oben. Die **Entropy fällt** (der Markt wird „ruhiger" und strukturierter), die **Energie steigt** (das Momentum baut sich auf), und die **Beschleunigung ist positiv** (der Aufwärtsdrang verstärkt sich). Das ist der Moment, auf den mbot wartet.
+
+Nur wenn alle drei Bedingungen gleichzeitig erfüllt sind — **und** der Markt sich nicht im Chaos-Regime befindet — wird ein Trade eröffnet.
 
 > **Disclaimer:** Diese Software ist experimentell und dient ausschließlich Forschungszwecken.
 > Der Handel mit Kryptowährungen birgt erhebliche finanzielle Risiken. Nutzung auf eigene Gefahr.
@@ -9,17 +17,72 @@ Ein mathematisch fundierter Trading-Bot basierend auf **Signalverarbeitung**, **
 
 ## Grundidee: Markt als dynamisches System
 
-Klassische Bots handeln Preismuster. Dieser Bot handelt **Systemzustände**:
+Klassische Bots handeln Preismuster. Dieser Bot handelt **Systemzustände**.
+
+Der Unterschied: Ein Preismuster sagt „BTC hat diesen Level dreimal getestet." Ein Systemzustand sagt „der Markt verhält sich gerade wie ein physikalisches System kurz vor einer Phasenverschiebung — geordnet, mit aufgebautem Momentum, und die Richtung ist klar."
+
+### Drei Fragen, die der Bot bei jeder Kerze stellt
+
+**1. Wird der Markt gerade geordneter?** *(Shannon Entropy)*
+Die Entropy misst, wie „überraschend" die Preisbewegungen der letzten N Kerzen waren.
+Hohe Entropy = viel Zufall, keine klare Richtung (Seitwärts-Chop).
+Fällt die Entropy → der Markt konsolidiert sich, ein Trend bahnt sich an.
 
 ```
-Marktdaten → Signalzerlegung (Entropy, Energie, Beschleunigung)
+Beispiel: BTC choppt 6 Stunden lang zwischen 43.000 und 43.500 USDT.
+Entropy = hoch (~2.8). Bot wartet.
+
+Dann: 3 Kerzen in Folge gleichmäßig aufwärts. Entropy fällt auf 1.9.
+→ Erste Bedingung erfüllt.
+```
+
+**2. Baut sich Momentum auf?** *(Kinetische Energie)*
+Energie = Geschwindigkeit². Wenn der Preis schneller wird, steigt die Energie.
+Ein Anstieg der Energie bedeutet: Das Momentum verstärkt sich — nicht nur Drift, sondern echter Schub.
+
+```
+Beispiel: Die Kerzen werden größer. v(t)² > v(t-5)².
+Energie ist um 40% gestiegen.
+→ Zweite Bedingung erfüllt.
+```
+
+**3. In welche Richtung?** *(Beschleunigung)*
+`a(t) = v(t) − v(t−1)` — steigt die Geschwindigkeit oder fällt sie?
+Positiv = Long-Signal. Negativ = Short-Signal.
+
+```
+Beispiel: a(t) = +0.0018 → Aufwärtsbeschleunigung → LONG
+→ Dritte Bedingung erfüllt → Entry bei 43.250 USDT
+   SL: 43.158 (1.5× ATR darunter), TP: 43.432 (3.0× ATR darüber)
+```
+
+### Was passiert danach: Regime-Check (Chaos-Filter)
+
+Bevor der Trade ausgeführt wird, prüft der Bot noch: **In welchem Zustand befindet sich der Markt überhaupt?**
+
+Der Bot analysiert die Phasenraum-Trajektorie — eine dreidimensionale Kurve aus Preis, Geschwindigkeit und Beschleunigung. Damit lässt sich der Marktzustand klassifizieren:
+
+| Zustand | Was passiert im Markt | Beispiel | Trading |
+|---|---|---|---|
+| `trend` | Gleichmäßige, spiralförmige Bewegung im Phasenraum | BTC läuft 3 Tage sauber von 40k auf 45k | Entry erlaubt |
+| `range` | Kurze Schleifen, kein Ausbruch | ETH pendelt wochenlang zwischen 2.200–2.400 | Konfigurierbar |
+| `chaos` | Explosives, unkontrollierbares Springen | Flash-Crash oder News-Spike | **Kein Trading** |
+
+```
+Praxis-Beispiel Chaos: BTC fällt in 3 Minuten um 8% (Liquidationskaskade).
+vel_consistency = sehr niedrig → chaos_ratio = sehr hoch → Regime = 'chaos'
+→ Kein Entry, egal wie gut die anderen Signale aussehen.
+```
+
+```
+Marktdaten → Entropy + Energie + Beschleunigung berechnen
                     ↓
-            MDEF Analyse (Phasenraum-Regime, Multi-Timeframe)
+            Regime-Check (Phasenraum: trend / range / chaos)
                     ↓
+            Regime = 'chaos' ? → Warten
             Regime = 'trend' ? → MERS prüft Entry-Bedingungen
-            Regime = 'chaos' ? → Kein Trading
                     ↓
-            Alle 3 Entry-Bedingungen erfüllt? → Trade mit ATR-basiertem SL/TP
+            Alle 3 Bedingungen erfüllt? → Trade mit ATR-basiertem SL/TP
 ```
 
 **Nur ein Symbol handelt gleichzeitig.** Wer zuerst ein Signal liefert, tradet — alle anderen warten.
