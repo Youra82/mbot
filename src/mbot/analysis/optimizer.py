@@ -48,7 +48,7 @@ START_CAPITAL           = 1000.0
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 50.0
 MIN_PNL_CONSTRAINT      = 0.0
-MIN_TRADES_CONSTRAINT   = 10
+MIN_TRADES_CONSTRAINT   = 20
 OPTIM_MODE              = 'strict'
 
 RESULTS_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'results', 'last_optimizer_run.json')
@@ -154,8 +154,8 @@ def main():
                         help='Minimale Win-Rate in % (z.B. 50)')
     parser.add_argument('--min_pnl',       type=float, default=0.0,
                         help='Minimaler PnL in % (z.B. 0)')
-    parser.add_argument('--min_trades',    type=int,   default=10,
-                        help='Minimale Anzahl Trades fuer gueltigen Trial (z.B. 5)')
+    parser.add_argument('--min_trades',    type=int,   default=20,
+                        help='Minimale Anzahl Trades fuer gueltigen Trial (z.B. 20)')
     parser.add_argument('--mode',          type=str,   default='strict',
                         choices=['strict', 'best_profit'])
     args = parser.parse_args()
