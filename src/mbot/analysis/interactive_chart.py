@@ -301,7 +301,6 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     fig.add_trace(go.Scatter(
         x=df.index, y=atr_ser,
         mode='lines', line=dict(color='#42a5f5', width=1.3),
-        fill='tozeroy', fillcolor='rgba(66,165,245,0.10)',
         name='ATR', showlegend=False,
         hovertemplate='ATR: %{y:.2f}<extra></extra>',
     ), row=5, col=1)
@@ -347,7 +346,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     fig.update_yaxes(title_text='Preis', row=1, col=1)
     fig.update_yaxes(title_text='Vol',   row=2, col=1)
     fig.update_yaxes(title_text='H',     row=3, col=1, tickformat='.3f')
-    fig.update_yaxes(title_text='E',     row=4, col=1, type='log')
+    fig.update_yaxes(title_text='E',     row=4, col=1, tickformat='.5f')
     fig.update_yaxes(title_text='ATR',   row=5, col=1)
 
     # Speichern
