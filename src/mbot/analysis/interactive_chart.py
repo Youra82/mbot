@@ -150,9 +150,9 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     )
 
     # --- Regime-Hintergrund (Candlestick-Panel) ---
-    _regime_fill = {'trend': 'rgba(38,166,154,0.10)',
-                    'range': 'rgba(255,167,38,0.10)',
-                    'chaos': 'rgba(239,83,80,0.10)'}
+    _regime_fill = {'trend': 'rgba(38,166,154,0.22)',
+                    'range': 'rgba(255,167,38,0.18)',
+                    'chaos': 'rgba(239,83,80,0.22)'}
     prev_reg, blk_start = None, None
     for i, (ts_idx, reg) in enumerate(zip(df.index, regimes)):
         if reg != prev_reg:
@@ -313,7 +313,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     fig.add_trace(go.Bar(
         x=df.index, y=reg_heights,
         marker_color=[_reg_col.get(r, 'rgba(0,0,0,0)') for r in regimes],
-        opacity=0.35, name='Regime', showlegend=False,
+        opacity=0.55, name='Regime', showlegend=False,
         hovertext=regimes,
         hovertemplate='%{hovertext}<extra></extra>',
     ), row=5, col=1)
