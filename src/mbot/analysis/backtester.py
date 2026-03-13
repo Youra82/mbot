@@ -12,6 +12,9 @@ Simuliert das MERS-Signal auf historischen Kerzen und berechnet:
 
 SL/TP: ATR-basiert (aus MERS signal['sl_price'] / signal['tp_price'])
 Exit:   Intra-candle SL/TP-Pruefung via High/Low (Hard Stop)
+
+Optimierung: Features werden einmal auf dem gesamten DataFrame vorberechnet
+(O(N) statt O(N^2)) anstatt get_mers_signal() fuer jede Kerze aufzurufen.
 """
 
 import os
@@ -24,7 +27,16 @@ import numpy as np
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from mbot.strategy.mers_signal import get_mers_signal
+from mbot.strategy.mdef_analysis import (
+    calc_log_returns,
+    calc_rolling_entropy,
+    calc_velocity,
+    calc_acceleration,
+    calc_energy,
+    calc_atr,
+    classify_phase_regime,
+    calc_multitf_alignment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,18 +95,46 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     """
     Fuehrt den MERS-Backtest durch.
 
-    Logik:
-    - Jede Kerze wird als potentielles MERS-Signal geprueft
-    - Signal -> sofortiger Entry zum Close-Kurs dieser Kerze
-    - SL/TP werden ATR-basiert aus dem Signal berechnet
-    - TP / SL werden auf naechsten Kerzen geprueft (intra-candle via High/Low)
-    - Nur ein Trade zur Zeit (kein gleichzeitiger Trade)
+    Optimierung: Alle Features (Entropy, ATR, Velocity, Acc, Energy) werden
+    einmal auf dem gesamten DataFrame vorberechnet (O(N)). Danach werden im
+    Loop nur Werte per Index nachgeschlagen, statt get_mers_signal() fuer
+    jede Kerze neu aufzurufen (was O(N^2) waere).
 
     Returns dict mit allen Ergebnissen.
     """
     leverage           = int(risk_config.get('leverage', 20))
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
                                risk_config.get('risk_per_trade_pct', 100.0)))
+
+    # --- Signal-Parameter auslesen ---
+    entropy_window    = int(signal_config.get('entropy_window',       20))
+    entropy_lookback  = int(signal_config.get('entropy_lookback',     10))
+    energy_lookback   = int(signal_config.get('energy_lookback',       5))
+    min_entropy_drop  = float(signal_config.get('min_entropy_drop_pct', 0.05))
+    min_energy_rise   = float(signal_config.get('min_energy_rise_pct',  0.20))
+    atr_period        = int(signal_config.get('atr_period',            14))
+    atr_sl_mult       = float(signal_config.get('atr_sl_mult',          1.5))
+    atr_tp_mult       = float(signal_config.get('atr_tp_mult',          3.0))
+    use_regime_filter = bool(int(signal_config.get('use_regime_filter',   1)))
+    regime_window     = int(signal_config.get('regime_window',          20))
+    allow_range_trade = bool(int(signal_config.get('allow_range_trade',   0)))
+    use_multitf_filter = bool(int(signal_config.get('use_multitf_filter', 0)))
+    meso_tf_mult      = int(signal_config.get('meso_tf_mult',            4))
+    macro_tf_mult     = int(signal_config.get('macro_tf_mult',           16))
+
+    if len(df) < MIN_CANDLES + 1:
+        return _empty_result(symbol, start_capital)
+
+    # -------------------------------------------------------
+    # FEATURE-VORBERECHNUNG (einmalig auf vollem DataFrame)
+    # -------------------------------------------------------
+    price    = df['close']
+    returns  = calc_log_returns(price)
+    entropy  = calc_rolling_entropy(returns, window=entropy_window)
+    velocity = calc_velocity(price)
+    acc      = calc_acceleration(velocity)
+    energy   = calc_energy(velocity)
+    atr_ser  = calc_atr(df, period=atr_period)
 
     capital  = start_capital
     trades   = []
@@ -152,67 +192,97 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                 trade = {}
             continue  # Wenn in Trade: keine neue Signal-Pruefung
 
-        # --- MERS-Signal-Pruefung ---
-        window = df.iloc[max(0, i - MIN_CANDLES):i + 1]
-        signal = get_mers_signal(window, signal_config)
+        # -------------------------------------------------------
+        # MERS-SIGNAL-PRUEFUNG (vorberechnete Features nutzen)
+        # -------------------------------------------------------
+        cur_entropy  = entropy.iloc[i]
+        cur_energy   = energy.iloc[i]
+        cur_acc      = acc.iloc[i]
+        cur_atr      = atr_ser.iloc[i]
+        entry_price  = float(price.iloc[i])
 
-        if signal['side'] is None:
+        # Lookback-Schutz
+        if i < entropy_lookback or i < energy_lookback:
+            continue
+        prev_entropy = entropy.iloc[i - entropy_lookback]
+        prev_energy  = energy.iloc[i - energy_lookback]
+
+        # NaN / ungueltige Werte ueberspringen
+        if any(np.isnan(v) for v in [cur_entropy, prev_entropy, cur_energy,
+                                      prev_energy, cur_acc, cur_atr]):
+            continue
+        if cur_atr <= 0 or entry_price <= 0:
             continue
 
-        # Entry
-        entry_price = float(current['close'])
-        side        = signal['side']
+        # --- Layer 2: Regime-Check (optional) ---
+        if use_regime_filter:
+            vel_win = velocity.iloc[max(0, i - regime_window):i + 1]
+            acc_win = acc.iloc[max(0, i - regime_window):i + 1]
+            regime  = classify_phase_regime(vel_win, acc_win, window=regime_window)
+            if regime == 'chaos':
+                continue
+            if regime == 'range' and not allow_range_trade:
+                continue
 
-        # ATR-basierte SL/TP anhand tatsaechlichem Entry-Preis neu berechnen
-        atr         = signal.get('atr', 0)
-        atr_sl_mult = signal.get('atr_sl_mult', 1.5)
-        atr_tp_mult = signal.get('atr_tp_mult', 3.0)
+        # --- Layer 1: Entropy-Bedingung ---
+        if prev_entropy <= 0:
+            continue
+        entropy_drop = (prev_entropy - cur_entropy) / prev_entropy
+        if entropy_drop < min_entropy_drop:
+            continue
 
-        if atr and atr > 0:
-            if side == 'long':
-                sl_price_abs = entry_price - atr_sl_mult * atr
-                tp_price_abs = entry_price + atr_tp_mult * atr
-            else:
-                sl_price_abs = entry_price + atr_sl_mult * atr
-                tp_price_abs = entry_price - atr_tp_mult * atr
+        # --- Layer 1: Energie-Bedingung ---
+        if prev_energy <= 0:
+            continue
+        energy_rise = (cur_energy - prev_energy) / prev_energy
+        if energy_rise < min_energy_rise:
+            continue
+
+        # --- Layer 1: Richtung via Beschleunigung ---
+        if cur_acc > 0:
+            side = 'long'
+        elif cur_acc < 0:
+            side = 'short'
         else:
-            # Fallback: aus Signal (sollte nicht passieren)
-            sl_price_abs = signal['sl_price']
-            tp_price_abs = signal['tp_price']
+            continue
+
+        # --- Layer 3: Multi-Timeframe (optional) ---
+        if use_multitf_filter:
+            window_df = df.iloc[max(0, i - MIN_CANDLES):i + 1]
+            mtf = calc_multitf_alignment(window_df,
+                                          meso_mult=meso_tf_mult,
+                                          macro_mult=macro_tf_mult)
+            if not mtf['aligned']:
+                continue
+            if side == 'long'  and mtf['direction'] < 0:
+                continue
+            if side == 'short' and mtf['direction'] > 0:
+                continue
+
+        # --- SL/TP berechnen (ATR-basiert) ---
+        if side == 'long':
+            sl_price_abs = entry_price - atr_sl_mult * cur_atr
+            tp_price_abs = entry_price + atr_tp_mult * cur_atr
+        else:
+            sl_price_abs = entry_price + atr_sl_mult * cur_atr
+            tp_price_abs = entry_price - atr_tp_mult * cur_atr
 
         idx = df.index[i]
         entry_time = idx.isoformat() if hasattr(idx, 'isoformat') else str(idx)
         in_trade = True
         trade = {
-            'symbol':        symbol,
-            'side':          side,
-            'entry_time':    entry_time,
-            'entry_price':   entry_price,
-            'sl_price':      sl_price_abs,
-            'tp_price':      tp_price_abs,
-            'atr':           round(atr, 6) if atr else None,
-            'entropy_drop':  signal.get('entropy_drop'),
-            'energy_rise':   signal.get('energy_rise'),
-            'reason':        signal.get('reason', ''),
+            'symbol':      symbol,
+            'side':        side,
+            'entry_time':  entry_time,
+            'entry_price': entry_price,
+            'sl_price':    sl_price_abs,
+            'tp_price':    tp_price_abs,
+            'atr':         round(cur_atr, 6),
         }
 
     # --- Statistiken ---
     if not trades:
-        return {
-            'symbol':         symbol,
-            'trades':         [],
-            'total_trades':   0,
-            'wins':           0,
-            'losses':         0,
-            'win_rate':       0.0,
-            'total_pnl_pct':  0.0,
-            'total_pnl_usdt': 0.0,
-            'max_drawdown':   0.0,
-            'best_trade':     0.0,
-            'worst_trade':    0.0,
-            'start_capital':  start_capital,
-            'end_capital':    start_capital,
-        }
+        return _empty_result(symbol, start_capital)
 
     wins   = sum(1 for t in trades if t['result'] == 'win')
     losses = len(trades) - wins
@@ -246,4 +316,22 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
         'worst_trade':    round(min(pnls), 2),
         'start_capital':  start_capital,
         'end_capital':    round(capital, 2),
+    }
+
+
+def _empty_result(symbol: str, start_capital: float) -> dict:
+    return {
+        'symbol':         symbol,
+        'trades':         [],
+        'total_trades':   0,
+        'wins':           0,
+        'losses':         0,
+        'win_rate':       0.0,
+        'total_pnl_pct':  0.0,
+        'total_pnl_usdt': 0.0,
+        'max_drawdown':   0.0,
+        'best_trade':     0.0,
+        'worst_trade':    0.0,
+        'start_capital':  start_capital,
+        'end_capital':    start_capital,
     }
