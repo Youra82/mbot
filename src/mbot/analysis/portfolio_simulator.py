@@ -129,34 +129,27 @@ def run_portfolio_simulation(results_dict: dict, start_capital: float) -> dict:
 
 
 def find_best_portfolio(results_dict: dict, start_capital: float,
-                        target_max_dd: float) -> dict:
+                        target_max_dd: float, verbose: bool = False) -> dict:
     """
     Findet die beste Kombination aus den uebergebenen Strategien,
     die den Drawdown-Constraint erfuellt und den PnL maximiert.
-
-    Durchsucht alle nicht-leeren Teilmengen (bis max 12 Strategien, sonst zu langsam).
-
-    Args:
-        results_dict: {filename: backtest_result_dict}
-        start_capital: Startkapital in USDT
-        target_max_dd: Maximaler erlaubter Drawdown in %
-
-    Returns:
-        {'portfolio': portfolio_dict, 'selected': [list_of_filenames]}
-        oder None wenn kein gueltiges Portfolio gefunden.
+    Bricht fruehzeitig ab, wenn mehr Strategien keine Verbesserung bringen.
     """
     keys = list(results_dict.keys())
     n    = len(keys)
 
-    # Bei zu vielen Strategien nur Einzeln + Paare + Top-Kombinationen testen
-    max_combo_size = min(n, 8)
-
-    best_pnl       = -float('inf')
-    best_portfolio = None
-    best_selected  = None
+    max_combo_size     = min(n, 8)
+    best_pnl           = -float('inf')
+    best_portfolio     = None
+    best_selected      = None
+    last_improved_size = 0
 
     for size in range(1, max_combo_size + 1):
-        for combo in combinations(keys, size):
+        combos        = list(combinations(keys, size))
+        size_best_pnl = -float('inf')
+        size_best_dd  = 0.0
+
+        for combo in combos:
             subset = {k: results_dict[k] for k in combo}
             trades = _merge_trades_chronological(subset)
             port   = _simulate_portfolio(trades, start_capital)
@@ -165,10 +158,28 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
                 continue
             if port['max_drawdown'] > target_max_dd:
                 continue
+            if port['total_pnl_pct'] > size_best_pnl:
+                size_best_pnl = port['total_pnl_pct']
+                size_best_dd  = port['max_drawdown']
             if port['total_pnl_pct'] > best_pnl:
-                best_pnl       = port['total_pnl_pct']
-                best_portfolio = port
-                best_selected  = list(combo)
+                best_pnl           = port['total_pnl_pct']
+                best_portfolio     = port
+                best_selected      = list(combo)
+                last_improved_size = size
+
+        if verbose:
+            if size_best_pnl > -float('inf'):
+                print(f'  Teste Teams mit {size} Strategie(n) ({len(combos)} Kombinationen)'
+                      f' ... Bestes PnL: {size_best_pnl:+.1f}%  MaxDD: {size_best_dd:.1f}%')
+            else:
+                print(f'  Teste Teams mit {size} Strategie(n) ({len(combos)} Kombinationen)'
+                      f' ... kein gueltiges Portfolio gefunden')
+
+        # Fruehzeitiger Abbruch bei 2 Groessen ohne Verbesserung
+        if last_improved_size > 0 and size >= last_improved_size + 2:
+            if verbose:
+                print(f'\n  Keine weitere Verbesserung durch mehr Strategien. Optimierung beendet.')
+            break
 
     if best_portfolio is None:
         return None

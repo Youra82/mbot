@@ -267,62 +267,146 @@ def mode_manual_portfolio(target_max_dd):
 # ============================================================
 
 def mode_auto_portfolio(target_max_dd):
-    print(f'\n--- mbot Automatische Portfolio-Optimierung ---')
-    print(f'Ziel: Maximaler Profit bei maximal {target_max_dd:.2f}% Drawdown.\n')
-
     configs = load_all_configs()
     if not configs:
         print(f'{RED}Keine optimierten Strategien (Configs) gefunden.{NC}')
         return
 
     start_date, end_date, start_capital = ask_backtest_config()
-    exchange, risk_config, _ = get_exchange_and_risk()
+    exchange, risk_config, telegram = get_exchange_and_risk()
 
-    print(f'\nLade Daten fuer alle {len(configs)} Strategien...')
+    sep = '─' * 72
+    print(f'\n{sep}')
+    print(f'  mbot Automatische Portfolio-Optimierung')
+    print(f'  Ziel: Maximaler Profit bei maximal {target_max_dd:.1f}% Drawdown.'
+          f' | {start_date} → {end_date}')
+    print(f'  Modell: Gemeinsamer Kapital-Pool — alle Trades kompoundieren zusammen')
+    print(f'{sep}\n')
+
+    print(f'  Lade Backtest-Ergebnisse ...', end='', flush=True)
     results = run_all_backtests(configs, exchange, risk_config, start_date, end_date, start_capital)
+    with_trades = sum(1 for r in results.values() if r.get('total_trades', 0) > 0)
+    print(f' {len(results)} Dateien, {with_trades} mit Trades.')
 
     if not results:
         print(f'{RED}Keine Ergebnisse.{NC}')
         return
 
-    # Strategien mit negativem PnL vor der Optimierung ausfiltern
+    # Strategien mit negativem PnL ausfiltern
     positive_results = {k: v for k, v in results.items() if v.get('total_pnl_pct', 0.0) > 0}
     if not positive_results:
         print(f'{RED}Keine Strategie mit positivem PnL gefunden.{NC}')
         return
     excluded = len(results) - len(positive_results)
     if excluded:
-        print(f'  {excluded} Strategie(n) mit negativem PnL ausgeschlossen.')
+        print(f'  {excluded} Strategie(n) mit negativem PnL ausgeschlossen.\n')
 
+    print(f'\n  Optimiere Portfolio...\n')
     from mbot.analysis.portfolio_simulator import find_best_portfolio
-    best = find_best_portfolio(positive_results, start_capital, target_max_dd)
+    best = find_best_portfolio(positive_results, start_capital, target_max_dd, verbose=True)
 
     if not best:
-        print(f'{RED}Kein Portfolio gefunden das den Drawdown-Constraint ({target_max_dd}%) erfuellt.{NC}')
+        print(f'\n{RED}Kein Portfolio gefunden das den Drawdown-Constraint ({target_max_dd}%) erfuellt.{NC}')
         return
 
-    _print_portfolio_result(best['portfolio'], 'Optimales Portfolio')
+    port    = best['portfolio']
+    pnl_pct = port.get('total_pnl_pct', 0.0)
+    max_dd  = port.get('max_drawdown', 0.0)
+    trades  = port.get('total_trades', 0)
+    wr      = port.get('win_rate', 0.0)
+    end_cap = port.get('end_capital', start_capital)
+    pnl_c   = GREEN if pnl_pct >= 0 else RED
+    dd_c    = GREEN if max_dd <= 10 else YELLOW if max_dd <= 25 else RED
 
-    print(f'\n{BOLD}Ausgewaehlte Strategien:{NC}')
+    print(f'\n{"="*72}')
+    print(f'  mbot — Automatische Portfolio-Optimierung')
+    print(f'  Ziel: Maximaler Profit bei maximal {target_max_dd:.1f}% Drawdown.')
+    print(f'{"="*72}\n')
+
+    n_selected = len(best['selected'])
+    print(f'  Optimales Portfolio — {n_selected} Strategie(n)')
+    print(f'  Kapital: {start_capital:.0f} USDT  (gemeinsamer Pool)\n')
+
+    # Tabelle pro Strategie
+    print(f'  {"Markt":<25} {"TF":<6} {"Trades":>7} {"WR":>8} {"PnL%":>10}  {"MaxDD":>7}')
+    print(f'  {"─"*68}')
     for fn in best['selected']:
-        r = results[fn]
-        market = r.get('symbol', '?')
+        r      = results[fn]
+        sym    = r.get('symbol', '?')
         tf     = r.get('timeframe', '?')
-        pnl    = r.get('total_pnl_pct', 0.0)
-        print(f'  - {market} ({tf})  PnL: {pnl:+.2f}%')
+        tr     = r.get('total_trades', 0)
+        w      = r.get('win_rate', 0.0)
+        p      = r.get('total_pnl_pct', 0.0)
+        dd     = r.get('max_drawdown', 0.0)
+        pc     = GREEN if p >= 0 else RED
+        dc     = GREEN if dd <= 10 else YELLOW if dd <= 25 else RED
+        print(f'  {sym:<25} {tf:<6} {tr:>7}  {w:>5.1f}% {pc}{p:>+9.1f}%{NC}  {dc}{dd:>5.1f}%{NC}')
 
-    # Fuer settings.json Update: optimal_portfolio.json speichern
+    print(f'\n  {"─"*68}')
+    print(f'  Portfolio gesamt (gemeinsamer Kapital-Pool, alle Trades kompoundiert):')
+    print(f'  Trades total:  {trades}')
+    print(f'  Win-Rate:      {wr:.1f}%')
+    print(f'  PnL:           {pnl_c}{pnl_pct:+.1f}%{NC}')
+    print(f'  Final Equity:  {end_cap:.2f} USDT')
+    print(f'  Max Drawdown:  {dd_c}{max_dd:.1f}%{NC}')
+    print(f'{"="*72}\n')
+
+    # settings.json aktualisieren
     os.makedirs(RESULTS_DIR, exist_ok=True)
     portfolio_data = {
         'selected_strategies': [
             {'symbol': results[fn].get('symbol'), 'timeframe': results[fn].get('timeframe')}
             for fn in best['selected']
         ],
-        'pnl_pct':     best['portfolio']['total_pnl_pct'],
-        'max_drawdown': best['portfolio']['max_drawdown'],
+        'pnl_pct':      pnl_pct,
+        'max_drawdown': max_dd,
     }
     with open(os.path.join(RESULTS_DIR, 'optimal_portfolio.json'), 'w') as f:
         json.dump(portfolio_data, f, indent=2)
+
+    raw = input('  Sollen die optimalen Ergebnisse in settings.json eingetragen werden? (j/n): ').strip().lower()
+    if raw in ('j', 'y', 'ja', 'yes'):
+        settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
+        with open(settings_path) as f:
+            settings = json.load(f)
+        strategies = [
+            {'symbol': results[fn].get('symbol'), 'timeframe': results[fn].get('timeframe'), 'active': True}
+            for fn in best['selected']
+        ]
+        settings['live_trading_settings']['active_strategies'] = strategies
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f, indent=4)
+        print(f'{GREEN}  ✓ settings.json aktualisiert — {len(strategies)} Strategie(n) eingetragen.{NC}')
+    else:
+        print(f'{YELLOW}  Keine Aenderungen an settings.json vorgenommen.{NC}')
+
+    # Interaktive Charts
+    raw = input(f'\n  Interaktive Charts fuer diese Zusammenstellung erstellen & via Telegram senden? (j/n): ').strip().lower()
+    if raw in ('j', 'y', 'ja', 'yes'):
+        from mbot.analysis.interactive_chart import _generate_chart, _send_charts_via_telegram
+        from mbot.utils.exchange import Exchange
+        with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
+            secrets = json.load(f)
+        accounts  = secrets.get('mbot', [])
+        tg        = secrets.get('telegram', {})
+        bot_token = tg.get('bot_token', '')
+        chat_id   = tg.get('chat_id', '')
+        exch      = Exchange(accounts[0])
+        generated = []
+        for fn in best['selected']:
+            r          = results[fn]
+            sym        = r.get('symbol', '?')
+            tf         = r.get('timeframe', '?')
+            cfg        = next((c for c in configs if c.get('_filename') == fn), {})
+            sig_cfg    = cfg.get('signal', {})
+            print(f'  Erstelle Chart: {sym} ({tf})...')
+            path = _generate_chart(exch, sym, tf, start_date, end_date,
+                                   start_capital, sig_cfg, risk_config)
+            if path:
+                generated.append(path)
+                if bot_token and chat_id:
+                    _send_charts_via_telegram([path], bot_token, chat_id)
+        print(f'{GREEN}  ✓ {len(generated)} Chart(s) erstellt & gesendet.{NC}')
 
 
 def _print_portfolio_result(portfolio, label):
