@@ -90,7 +90,7 @@ def _compute_mers_panels(df, signal_config: dict):
         else:
             regimes.append('range')
 
-    return entropy, energy, atr_ser, regimes
+    return entropy, energy, velocity, atr_ser, regimes
 
 
 def _generate_chart(exchange, symbol: str, timeframe: str,
@@ -131,11 +131,11 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     n_trades = result.get('total_trades', 0)
 
     # MERS-Indikatoren berechnen
-    entropy, energy, atr_ser, regimes = _compute_mers_panels(df, signal_config)
+    entropy, energy, velocity, atr_ser, regimes = _compute_mers_panels(df, signal_config)
 
-    # Figur: 5 Panels
+    # Figur: 6 Panels
     fig = make_subplots(
-        rows=5, cols=1,
+        rows=6, cols=1,
         shared_xaxes=True,
         specs=[
             [{'secondary_y': True}],
@@ -143,10 +143,11 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
             [{'secondary_y': False}],
             [{'secondary_y': False}],
             [{'secondary_y': False}],
+            [{'secondary_y': False}],
         ],
-        vertical_spacing=0.025,
-        row_heights=[0.42, 0.12, 0.15, 0.15, 0.16],
-        subplot_titles=['', 'Volumen', 'Shannon Entropy', 'Energy', 'ATR  |  Regime'],
+        vertical_spacing=0.022,
+        row_heights=[0.38, 0.10, 0.13, 0.13, 0.13, 0.13],
+        subplot_titles=['', 'Volumen', 'Shannon Entropy', 'Energy', 'Velocity  (↑ Long / ↓ Short)', 'ATR  |  Regime'],
     )
 
     # --- Regime-Hintergrund (Candlestick-Panel) ---
@@ -297,13 +298,41 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
             hovertemplate='Signal<br>%{x}<extra></extra>',
         ), row=4, col=1)
 
-    # --- Panel 5: ATR + Regime-Balken ---
+    # --- Panel 5: Velocity (Richtungsindikator) ---
+    vel_colors = ['#26a69a' if v >= 0 else '#ef5350' for v in velocity]
+    fig.add_trace(go.Bar(
+        x=df.index, y=velocity,
+        marker_color=vel_colors,
+        name='Velocity', showlegend=False,
+        hovertemplate='Velocity: %{y:.4f}<extra></extra>',
+    ), row=5, col=1)
+    # Nulllinie
+    fig.add_hline(y=0, line_color='rgba(255,255,255,0.3)', line_width=1, row=5, col=1)
+    # Signal-Marker auf Velocity
+    if trades:
+        sig_vel = []
+        for t in trades:
+            ts_key = pd.Timestamp(t['entry_time'])
+            try:
+                sig_vel.append(float(velocity.asof(ts_key)))
+            except Exception:
+                sig_vel.append(0.0)
+        sig_colors = ['#26a69a' if v >= 0 else '#ef5350' for v in sig_vel]
+        fig.add_trace(go.Scatter(
+            x=[t['entry_time'] for t in trades], y=sig_vel, mode='markers',
+            marker=dict(symbol='circle-open', size=10,
+                        color=sig_colors, line=dict(width=2)),
+            showlegend=False,
+            hovertemplate='Signal<br>%{x}<br>Velocity: %{y:.4f}<extra></extra>',
+        ), row=5, col=1)
+
+    # --- Panel 6: ATR + Regime-Balken ---
     fig.add_trace(go.Scatter(
         x=df.index, y=atr_ser,
         mode='lines', line=dict(color='#42a5f5', width=1.3),
         name='ATR', showlegend=False,
         hovertemplate='ATR: %{y:.2f}<extra></extra>',
-    ), row=5, col=1)
+    ), row=6, col=1)
     # Regime als farbige Balken (normiert auf ATR-Skala)
     atr_max = float(atr_ser.max()) if not atr_ser.empty else 1.0
     _reg_col = {'trend': '#26a69a', 'range': '#ffa726',
@@ -315,7 +344,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         opacity=0.55, name='Regime', showlegend=False,
         hovertext=regimes,
         hovertemplate='%{hovertext}<extra></extra>',
-    ), row=5, col=1)
+    ), row=6, col=1)
 
     # Dummy-Traces fuer Regime-Legende
     for label, color in [('Trend', '#26a69a'), ('Range', '#ffa726'), ('Chaos', '#ef5350')]:
@@ -323,7 +352,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
             x=[None], y=[None], mode='markers',
             marker=dict(symbol='square', size=10, color=color),
             name=label, showlegend=True,
-        ), row=5, col=1)
+        ), row=6, col=1)
 
     title_text = (
         f'{symbol} {timeframe} — MDEF-MERS | '
@@ -337,7 +366,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         xaxis_rangeslider_visible=False,
         legend=dict(orientation='h', yanchor='bottom', y=1.01,
                     xanchor='center', x=0.5, font=dict(size=11)),
-        height=1050,
+        height=1150,
         margin=dict(l=60, r=70, t=80, b=40),
         barmode='overlay',
         yaxis2=dict(title='Equity (USDT)', showgrid=False,
@@ -347,7 +376,9 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     fig.update_yaxes(title_text='Vol',   row=2, col=1)
     fig.update_yaxes(title_text='H',     row=3, col=1, tickformat='.3f')
     fig.update_yaxes(title_text='E',     row=4, col=1, tickformat='.5f')
-    fig.update_yaxes(title_text='ATR',   row=5, col=1)
+    fig.update_yaxes(title_text='V',     row=5, col=1, tickformat='.4f', zeroline=True,
+                     zerolinecolor='rgba(255,255,255,0.3)', zerolinewidth=1)
+    fig.update_yaxes(title_text='ATR',   row=6, col=1)
 
     # Speichern
     os.makedirs(CHARTS_DIR, exist_ok=True)
