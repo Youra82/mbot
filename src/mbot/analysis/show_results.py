@@ -285,8 +285,17 @@ def mode_auto_portfolio(target_max_dd):
         print(f'{RED}Keine Ergebnisse.{NC}')
         return
 
+    # Strategien mit negativem PnL vor der Optimierung ausfiltern
+    positive_results = {k: v for k, v in results.items() if v.get('total_pnl_pct', 0.0) > 0}
+    if not positive_results:
+        print(f'{RED}Keine Strategie mit positivem PnL gefunden.{NC}')
+        return
+    excluded = len(results) - len(positive_results)
+    if excluded:
+        print(f'  {excluded} Strategie(n) mit negativem PnL ausgeschlossen.')
+
     from mbot.analysis.portfolio_simulator import find_best_portfolio
-    best = find_best_portfolio(results, start_capital, target_max_dd)
+    best = find_best_portfolio(positive_results, start_capital, target_max_dd)
 
     if not best:
         print(f'{RED}Kein Portfolio gefunden das den Drawdown-Constraint ({target_max_dd}%) erfuellt.{NC}')
