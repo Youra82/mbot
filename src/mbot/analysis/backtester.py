@@ -102,7 +102,8 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
 
     Returns dict mit allen Ergebnissen.
     """
-    leverage           = int(risk_config.get('leverage', 20))
+    leverage           = int(signal_config.get('leverage',
+                             risk_config.get('leverage', 20)))
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
                                risk_config.get('risk_per_trade_pct', 100.0)))
 

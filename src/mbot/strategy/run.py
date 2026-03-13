@@ -95,12 +95,15 @@ def run_for_account(account: dict, telegram_config: dict,
         with open(config_path, 'r') as cf:
             loaded_cfg = json.load(cf)
         signal_config = loaded_cfg.get('signal', {})
-        # risk_per_trade_pct aus Config in risk_config uebernehmen (Config hat Vorrang)
+        # Optimierte Risiko-Parameter aus Config in risk_config uebernehmen (Config hat Vorrang)
+        risk_config = dict(risk_config)
         if 'risk_per_trade_pct' in signal_config:
-            risk_config = dict(risk_config)
             risk_config['risk_per_trade_pct'] = signal_config['risk_per_trade_pct']
+        if 'leverage' in signal_config:
+            risk_config['leverage'] = signal_config['leverage']
         logger.info(f"Config geladen: config_{safe_name}_mers.json "
                     f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}% | "
+                    f"Hebel: {risk_config.get('leverage', 20)}x | "
                     f"Risk/Trade: {risk_config.get('risk_per_trade_pct', 100):.0f}%)")
     else:
         signal_config = settings.get('signal', {})

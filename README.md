@@ -215,12 +215,14 @@ mbot/
 
 ---
 
-## Optimizer — 15 Parameter (Optuna)
+## Optimizer — 16 Parameter (Optuna)
 
-Der Optimizer findet automatisch die besten Werte für alle 15 Parameter:
+Der Optimizer findet automatisch die besten Werte für alle 16 Parameter — inklusive Hebel und Kapitalrisiko pro Coin/Timeframe-Paar:
 
 | Parameter | Bereich | Beschreibung |
 |---|---|---|
+| `risk_per_trade_pct` | 1–100% | Anteil des Kapitals pro Trade |
+| `leverage` | 1–30x | Hebel — wird pro Coin/TF individuell optimiert |
 | `entropy_window` | 10–60 | Rollierendes Fenster für Shannon Entropy |
 | `entropy_lookback` | 3–25 | Kerzen zurück für Entropy-Vergleich |
 | `energy_lookback` | 3–25 | Kerzen zurück für Energie-Vergleich |
@@ -236,6 +238,8 @@ Der Optimizer findet automatisch die besten Werte für alle 15 Parameter:
 | `meso_tf_mult` | 2–8 | Meso-Zeitskala (z.B. 4 → 15m×4 = 1h) |
 | `macro_tf_mult` | 8–32 | Makro-Zeitskala (z.B. 16 → 15m×16 = 4h) |
 
+> BTC/1h bekommt z.B. 5x Hebel mit 80% Kapital, ETH/15m 18x mit 25% — je nachdem was historisch am besten funktioniert hat.
+
 ---
 
 ## Konfiguration (`settings.json`)
@@ -247,6 +251,8 @@ Der Optimizer findet automatisch die besten Werte für alle 15 Parameter:
         "margin_mode": "isolated"
     },
     "signal": {
+        "leverage": 20,
+        "risk_per_trade_pct": 100,
         "entropy_window": 20,
         "entropy_lookback": 10,
         "energy_lookback": 5,

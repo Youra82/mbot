@@ -8,6 +8,7 @@ SL/TP werden ATR-basiert durch atr_sl_mult / atr_tp_mult gesteuert.
 
 Optimierte Parameter:
   risk_per_trade_pct   : Anteil des Kapitals pro Trade (1-100%)
+  leverage             : Hebel pro Trade (1-30x)
   entropy_window       : Rollierendes Fenster fuer Shannon Entropy (10-60)
   entropy_lookback     : Rueckschau fuer Entropy-Vergleich (3-25)
   energy_lookback      : Rueckschau fuer Energie-Vergleich (3-25)
@@ -59,8 +60,9 @@ def create_safe_filename(symbol: str, timeframe: str) -> str:
 
 def objective(trial):
     """Optuna-Zielfunktion: maximiert PnL% unter den konfigurierten Constraints."""
-    # --- Kapital-Risiko pro Trade ---
+    # --- Risiko-Parameter ---
     risk_per_trade_pct = trial.suggest_float('risk_per_trade_pct', 1.0, 100.0, step=1.0)
+    leverage           = trial.suggest_int(  'leverage',           1,   30)
 
     # --- Kern-MERS Parameter ---
     entropy_window   = trial.suggest_int(  'entropy_window',       10,  60)
@@ -86,6 +88,7 @@ def objective(trial):
 
     signal_config = {
         'risk_per_trade_pct':   risk_per_trade_pct,
+        'leverage':             leverage,
         'entropy_window':       entropy_window,
         'entropy_lookback':     entropy_lookback,
         'energy_lookback':      energy_lookback,
@@ -223,7 +226,7 @@ def main():
 
         db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
         storage_url = f"sqlite:///{db_file}?timeout=60"
-        study_name  = f"mers_{safe_name}_{OPTIM_MODE}_mt{MIN_TRADES_CONSTRAINT}"
+        study_name  = f"mers_{safe_name}_{OPTIM_MODE}_mt{MIN_TRADES_CONSTRAINT}_lv"
 
         study = optuna.create_study(
             storage=storage_url,
@@ -279,6 +282,7 @@ def main():
 
         best_signal_config = {
             'risk_per_trade_pct':   best_params['risk_per_trade_pct'],
+            'leverage':             best_params['leverage'],
             'entropy_window':       best_params['entropy_window'],
             'entropy_lookback':     best_params['entropy_lookback'],
             'energy_lookback':      best_params['energy_lookback'],
@@ -344,11 +348,12 @@ def main():
             json.dump(config_output, f, indent=4)
 
         rtp = best_params['risk_per_trade_pct']
+        lev = best_params['leverage']
         print(f"\n  [OK] Beste MERS Config gespeichert: config_{safe_name}_mers.json")
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       risk_per_trade={rtp:.0f}% "
+        print(f"       leverage={lev}x | risk_per_trade={rtp:.0f}% "
               f"entropy_window={best_params['entropy_window']} "
               f"entropy_lookback={best_params['entropy_lookback']} "
               f"energy_lookback={best_params['energy_lookback']}")
