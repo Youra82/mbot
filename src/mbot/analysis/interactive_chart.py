@@ -54,6 +54,44 @@ def _load_all_configs() -> list:
     return configs
 
 
+def _compute_mers_panels(df, signal_config: dict):
+    """Berechnet MERS-Indikatoren (Entropy, Energy, ATR, Regime) fuer Chart-Panels."""
+    from mbot.strategy.mers_signal import (
+        calc_log_returns, calc_rolling_entropy,
+        calc_velocity, calc_acceleration, calc_energy, calc_atr,
+    )
+    price    = df['close']
+    returns  = calc_log_returns(price)
+    entropy  = calc_rolling_entropy(returns, window=signal_config.get('entropy_window', 18))
+    velocity = calc_velocity(price)
+    acc      = calc_acceleration(velocity)
+    energy   = calc_energy(velocity)
+    atr_ser  = calc_atr(df, period=signal_config.get('atr_period', 21))
+
+    regime_window = signal_config.get('regime_window', 14)
+    regimes = []
+    for i in range(len(df)):
+        if i < regime_window:
+            regimes.append('neutral')
+            continue
+        v_win = velocity.iloc[max(0, i - regime_window):i]
+        a_win = acc.iloc[max(0, i - regime_window):i]
+        std_v = v_win.std()
+        if std_v == 0:
+            regimes.append('neutral')
+            continue
+        vel_consistency = abs(v_win.mean()) / std_v
+        chaos_ratio     = a_win.std() / std_v
+        if chaos_ratio > 1.5:
+            regimes.append('chaos')
+        elif vel_consistency > 0.3:
+            regimes.append('trend')
+        else:
+            regimes.append('range')
+
+    return entropy, energy, atr_ser, regimes
+
+
 def _generate_chart(exchange, symbol: str, timeframe: str,
                     start_date: str, end_date: str,
                     start_capital: float, signal_config: dict,
@@ -90,18 +128,44 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
     win_rate = result.get('win_rate', 0.0)
     max_dd   = result.get('max_drawdown', 0.0)
     n_trades = result.get('total_trades', 0)
-    end_cap  = result.get('end_capital', start_capital)
 
-    # Figur: oben Preis + Equity (rechte Y-Achse), unten Volumen
+    # MERS-Indikatoren berechnen
+    entropy, energy, atr_ser, regimes = _compute_mers_panels(df, signal_config)
+
+    # Figur: 5 Panels
     fig = make_subplots(
-        rows=2, cols=1,
+        rows=5, cols=1,
         shared_xaxes=True,
-        specs=[[{'secondary_y': True}], [{'secondary_y': False}]],
-        vertical_spacing=0.03,
-        row_heights=[0.82, 0.18],
+        specs=[
+            [{'secondary_y': True}],
+            [{'secondary_y': False}],
+            [{'secondary_y': False}],
+            [{'secondary_y': False}],
+            [{'secondary_y': False}],
+        ],
+        vertical_spacing=0.025,
+        row_heights=[0.42, 0.12, 0.15, 0.15, 0.16],
+        subplot_titles=['', 'Volumen', 'Shannon Entropy', 'Energy', 'ATR  |  Regime'],
     )
 
-    # OHLC Candlestick
+    # --- Regime-Hintergrund (Candlestick-Panel) ---
+    _regime_fill = {'trend': 'rgba(38,166,154,0.10)',
+                    'range': 'rgba(255,167,38,0.10)',
+                    'chaos': 'rgba(239,83,80,0.10)'}
+    prev_reg, blk_start = None, None
+    for i, (ts_idx, reg) in enumerate(zip(df.index, regimes)):
+        if reg != prev_reg:
+            if prev_reg in _regime_fill and blk_start is not None:
+                fig.add_vrect(x0=blk_start, x1=ts_idx,
+                              fillcolor=_regime_fill[prev_reg],
+                              layer='below', line_width=0, row=1, col=1)
+            blk_start, prev_reg = ts_idx, reg
+    if prev_reg in _regime_fill and blk_start is not None:
+        fig.add_vrect(x0=blk_start, x1=df.index[-1],
+                      fillcolor=_regime_fill[prev_reg],
+                      layer='below', line_width=0, row=1, col=1)
+
+    # --- Panel 1: Candlestick ---
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df['open'], high=df['high'],
@@ -174,17 +238,92 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         hovertemplate='Equity: %{y:.2f} USDT<extra></extra>',
     ), row=1, col=1, secondary_y=True)
 
-    # Volumen (unteres Panel)
+    # --- Panel 2: Volumen ---
     if 'volume' in df.columns:
         vol_colors = ['#26a69a' if c >= o else '#ef5350'
                       for c, o in zip(df['close'], df['open'])]
         fig.add_trace(go.Bar(
             x=df.index, y=df['volume'],
             marker_color=vol_colors,
-            name='Volumen',
-            showlegend=False,
-            opacity=0.6,
+            name='Volumen', showlegend=False, opacity=0.6,
         ), row=2, col=1)
+
+    # --- Panel 3: Shannon Entropy ---
+    fig.add_trace(go.Scatter(
+        x=df.index, y=entropy,
+        mode='lines', line=dict(color='#ab47bc', width=1.5),
+        fill='tozeroy', fillcolor='rgba(171,71,188,0.10)',
+        name='Entropy', showlegend=False,
+        hovertemplate='Entropy: %{y:.4f}<extra></extra>',
+    ), row=3, col=1)
+    # Mittellinie als Referenz
+    fig.add_hline(y=float(entropy.mean()), line_dash='dot',
+                  line_color='rgba(171,71,188,0.45)', row=3, col=1)
+    # Signal-Punkte auf Entropy markieren
+    if trades:
+        sig_times = [t['entry_time'] for t in trades]
+        sig_ent   = [float(entropy.asof(pd.Timestamp(t))) if hasattr(entropy, 'asof')
+                     else float(entropy.mean()) for t in sig_times]
+        fig.add_trace(go.Scatter(
+            x=sig_times, y=sig_ent, mode='markers',
+            marker=dict(symbol='circle-open', size=9, color='#ab47bc',
+                        line=dict(width=2)),
+            name='Signal', showlegend=False,
+            hovertemplate='Signal<br>%{x}<extra></extra>',
+        ), row=3, col=1)
+
+    # --- Panel 4: Energy ---
+    fig.add_trace(go.Scatter(
+        x=df.index, y=energy,
+        mode='lines', line=dict(color='#ffa726', width=1.5),
+        fill='tozeroy', fillcolor='rgba(255,167,38,0.10)',
+        name='Energy', showlegend=False,
+        hovertemplate='Energy: %{y:.6f}<extra></extra>',
+    ), row=4, col=1)
+    if trades:
+        sig_en = []
+        for t in trades:
+            ts_key = pd.Timestamp(t['entry_time'])
+            try:
+                sig_en.append(float(energy.asof(ts_key)))
+            except Exception:
+                sig_en.append(float(energy.mean()))
+        fig.add_trace(go.Scatter(
+            x=[t['entry_time'] for t in trades], y=sig_en, mode='markers',
+            marker=dict(symbol='circle-open', size=9, color='#ffa726',
+                        line=dict(width=2)),
+            showlegend=False,
+            hovertemplate='Signal<br>%{x}<extra></extra>',
+        ), row=4, col=1)
+
+    # --- Panel 5: ATR + Regime-Balken ---
+    fig.add_trace(go.Scatter(
+        x=df.index, y=atr_ser,
+        mode='lines', line=dict(color='#42a5f5', width=1.3),
+        fill='tozeroy', fillcolor='rgba(66,165,245,0.10)',
+        name='ATR', showlegend=False,
+        hovertemplate='ATR: %{y:.2f}<extra></extra>',
+    ), row=5, col=1)
+    # Regime als farbige Balken (normiert auf ATR-Skala)
+    atr_max = float(atr_ser.max()) if not atr_ser.empty else 1.0
+    _reg_col = {'trend': '#26a69a', 'range': '#ffa726',
+                'chaos': '#ef5350', 'neutral': 'rgba(0,0,0,0)'}
+    reg_heights = [atr_max * 0.18 for _ in regimes]
+    fig.add_trace(go.Bar(
+        x=df.index, y=reg_heights,
+        marker_color=[_reg_col.get(r, 'rgba(0,0,0,0)') for r in regimes],
+        opacity=0.35, name='Regime', showlegend=False,
+        hovertext=regimes,
+        hovertemplate='%{hovertext}<extra></extra>',
+    ), row=5, col=1)
+
+    # Dummy-Traces fuer Regime-Legende
+    for label, color in [('Trend', '#26a69a'), ('Range', '#ffa726'), ('Chaos', '#ef5350')]:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode='markers',
+            marker=dict(symbol='square', size=10, color=color),
+            name=label, showlegend=True,
+        ), row=5, col=1)
 
     title_text = (
         f'{symbol} {timeframe} — MDEF-MERS | '
@@ -196,14 +335,19 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         title=dict(text=title_text, font=dict(size=13), x=0.5, xanchor='center'),
         template='plotly_dark',
         xaxis_rangeslider_visible=False,
-        xaxis2_rangeslider_visible=False,
         legend=dict(orientation='h', yanchor='bottom', y=1.01,
                     xanchor='center', x=0.5, font=dict(size=11)),
-        height=820,
+        height=1050,
         margin=dict(l=60, r=70, t=80, b=40),
+        barmode='overlay',
         yaxis2=dict(title='Equity (USDT)', showgrid=False,
                     tickfont=dict(color='#5c9bd6'), title_font=dict(color='#5c9bd6')),
     )
+    fig.update_yaxes(title_text='Preis', row=1, col=1)
+    fig.update_yaxes(title_text='Vol',   row=2, col=1)
+    fig.update_yaxes(title_text='H',     row=3, col=1, tickformat='.3f')
+    fig.update_yaxes(title_text='E',     row=4, col=1, tickformat='.5f')
+    fig.update_yaxes(title_text='ATR',   row=5, col=1)
 
     # Speichern
     os.makedirs(CHARTS_DIR, exist_ok=True)
