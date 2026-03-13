@@ -47,7 +47,7 @@ START_CAPITAL           = 1000.0
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 50.0
 MIN_PNL_CONSTRAINT      = 0.0
-MIN_TRADES_CONSTRAINT   = 5
+MIN_TRADES_CONSTRAINT   = 10
 OPTIM_MODE              = 'strict'
 
 RESULTS_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'results', 'last_optimizer_run.json')
@@ -122,7 +122,7 @@ def objective(trial):
                 or trades < MIN_TRADES_CONSTRAINT):
             raise optuna.exceptions.TrialPruned()
     elif OPTIM_MODE == 'best_profit':
-        if trades == 0:
+        if trades < MIN_TRADES_CONSTRAINT:
             raise optuna.exceptions.TrialPruned()
         # Composite Score: belohnt PnL, bestraft Drawdown ueber Limit
         dd_penalty = max(0.0, drawdown - MAX_DRAWDOWN_CONSTRAINT * 100) * 3.0
@@ -153,7 +153,7 @@ def main():
                         help='Minimale Win-Rate in % (z.B. 50)')
     parser.add_argument('--min_pnl',       type=float, default=0.0,
                         help='Minimaler PnL in % (z.B. 0)')
-    parser.add_argument('--min_trades',    type=int,   default=5,
+    parser.add_argument('--min_trades',    type=int,   default=10,
                         help='Minimale Anzahl Trades fuer gueltigen Trial (z.B. 5)')
     parser.add_argument('--mode',          type=str,   default='strict',
                         choices=['strict', 'best_profit'])
