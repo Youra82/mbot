@@ -62,13 +62,12 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
 
     from mbot.analysis.backtester import load_data, run_backtest
 
-    print(f'  Lade Daten: {symbol} ({timeframe})...')
     df = load_data(exchange, symbol, timeframe, start_date, end_date)
     if df is None or df.empty:
-        print(f'  {RED}Keine Daten verfuegbar.{NC}')
+        print(f'INFO: {RED}Keine Daten verfuegbar fuer {symbol} ({timeframe}).{NC}')
         return ''
 
-    print(f'  Fuehre Backtest durch...')
+    print(f'INFO: Fuehre Backtest durch...')
     result = run_backtest(df, signal_config, risk_config,
                           start_capital=start_capital, symbol=symbol)
     trades = result.get('trades', [])
@@ -227,7 +226,7 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
 
 def run_interactive_chart():
     """Interaktiver Chart-Generator (Modus 4)."""
-    print('\n--- mbot Interaktive Charts ---\n')
+    print('\n========== INTERAKTIVE CHARTS ===========\n')
 
     configs = _load_all_configs()
     if not configs:
@@ -236,20 +235,20 @@ def run_interactive_chart():
         return
 
     # Verfuegbare Configs auflisten
-    print(f'{BOLD}{"="*60}{NC}')
-    print('Verfuegbare Strategien:')
-    print(f'{BOLD}{"="*60}{NC}')
+    print(f'{BOLD}{"="*70}{NC}')
+    print('Verfuegbare Konfigurationen:')
+    print(f'{BOLD}{"="*70}{NC}')
     for idx, cfg in enumerate(configs, 1):
-        market  = cfg.get('market', {})
-        symbol  = market.get('symbol', '?')
-        tf      = market.get('timeframe', '?')
         pnl     = cfg.get('_meta', {}).get('pnl_pct')
-        pnl_str = f'  [{pnl:+.1f}%]' if pnl is not None else ''
+        pnl_str = f'  [+{pnl:.1f}%]' if pnl and pnl > 0 else (f'  [{pnl:.1f}%]' if pnl is not None else '')
         clean   = cfg['_filename'].replace('config_', '').replace('_mers.json', '')
         print(f'{idx:>3}) {clean}{CYAN}{pnl_str}{NC}')
-    print(f'{BOLD}{"="*60}{NC}')
+    print(f'{BOLD}{"="*70}{NC}')
 
-    raw = input('\nStrategie(n) waehlen (z.B. "1" oder "1,3" oder "alle"): ').strip().lower()
+    print('\nWaehle Konfiguration(en) zum Anzeigen:')
+    print("  Einzeln: z.B. '1' oder '5'")
+    print("  Mehrfach: z.B. '1,3,5' oder '1 3 5'")
+    raw = input('\nAuswahl: ').strip().lower()
     if raw in ('alle', 'all'):
         selected = configs
     else:
@@ -265,13 +264,30 @@ def run_interactive_chart():
         print(f'{RED}Keine gueltigen Strategien ausgewaehlt.{NC}')
         return
 
-    # Zeitraum + Kapital
-    print('\n--- Zeitraum und Kapital ---')
-    raw = input('Startdatum (JJJJ-MM-TT) [Standard: 2024-01-01]: ').strip()
-    start_date = raw if raw else '2024-01-01'
+    # Chart-Optionen
+    print(f'\n{"="*60}')
+    print('Chart-Optionen:')
+    print(f'{"="*60}')
 
-    raw = input('Enddatum (JJJJ-MM-TT) [Standard: Heute]: ').strip()
+    raw = input('Startdatum (JJJJ-MM-TT) [leer=beliebig]: ').strip()
+    start_date = raw if raw else None
+
+    raw = input('Enddatum (JJJJ-MM-TT) [leer=heute]: ').strip()
     end_date = raw if raw else datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    raw = input('Letzten N Tage anzeigen [leer=alle]: ').strip()
+    if raw:
+        try:
+            n_days = int(raw)
+            from datetime import timedelta
+            end_dt   = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(days=n_days)
+            start_date = start_dt.strftime('%Y-%m-%d')
+            end_date   = end_dt.strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    if not start_date:
+        start_date = '2020-01-01'
 
     raw = input('Startkapital in USDT [Standard: 1000]: ').strip()
     try:
@@ -290,6 +306,14 @@ def run_interactive_chart():
         print(f'{RED}Keine mbot-Accounts in secret.json.{NC}')
         return
 
+    telegram  = secrets.get('telegram', {})
+    bot_token = telegram.get('bot_token', '')
+    chat_id   = telegram.get('chat_id', '')
+    send_tg   = False
+    if bot_token and chat_id:
+        raw = input('Telegram versenden? (j/n) [Standard: n]: ').strip().lower()
+        send_tg = raw in ('j', 'y', 'ja', 'yes')
+
     from mbot.utils.exchange import Exchange
     exchange    = Exchange(accounts[0])
     risk_config = settings.get('risk', {})
@@ -302,7 +326,8 @@ def run_interactive_chart():
         tf            = market.get('timeframe', '?')
         signal_config = cfg.get('signal', settings.get('signal', {}))
 
-        print(f'\n  Generiere Chart: {symbol} ({tf})...')
+        print(f'INFO: Verarbeite {cfg["_filename"]}...')
+        print(f'INFO: Lade OHLCV-Daten fuer {symbol} {tf}...')
         path = _generate_chart(
             exchange, symbol, tf,
             start_date, end_date,
@@ -310,29 +335,19 @@ def run_interactive_chart():
         )
         if path:
             generated.append(path)
-            print(f'  {GREEN}Gespeichert: {path}{NC}')
+            print(f'INFO: Erstelle Chart...')
+            print(f'INFO: {GREEN}✅ Chart gespeichert: {path}{NC}')
+            if send_tg:
+                print(f'INFO: Sende Chart via Telegram...')
+                _send_charts_via_telegram([path], bot_token, chat_id)
 
     if not generated:
         print(f'\n{RED}Keine Charts generiert.{NC}')
         return
 
-    # Optional im Browser oeffnen
-    raw = input(f'\nCharts im Browser oeffnen? (j/n) [Standard: j]: ').strip().lower()
-    if raw in ('', 'j', 'y', 'ja', 'yes'):
-        for path in generated:
-            webbrowser.open(f'file:///{path.replace(os.sep, "/")}')
-
-    # Optional per Telegram senden
-    telegram = secrets.get('telegram', {})
-    bot_token = telegram.get('bot_token', '')
-    chat_id   = telegram.get('chat_id', '')
-
-    if bot_token and chat_id:
-        raw = input('Charts per Telegram senden? (j/n) [Standard: n]: ').strip().lower()
-        if raw in ('j', 'y', 'ja', 'yes'):
-            _send_charts_via_telegram(generated, bot_token, chat_id)
-
-    print(f'\n{GREEN}✔ {len(generated)} Chart(s) erfolgreich generiert!{NC}')
+    print(f'\nINFO:')
+    print(f'INFO: {GREEN}✅ Alle Charts generiert!{NC}')
+    print(f'{GREEN}✅ Charts wurden generiert!{NC}')
 
 
 def _send_charts_via_telegram(chart_paths: list, bot_token: str, chat_id: str):
