@@ -112,9 +112,6 @@ for symbol in $SYMBOLS; do
     done
 done
 
-echo -e "\n${GREEN}>>> Optimierung abgeschlossen. Zeige Ergebnisse...${NC}\n"
-python3 src/mbot/analysis/show_results.py --mode 1
-
 # --- Optional: settings.json aktualisieren ---
 echo ""
 echo -e "${YELLOW}─────────────────────────────────────────────────${NC}"
