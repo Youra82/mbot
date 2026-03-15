@@ -48,7 +48,6 @@ CURRENT_TIMEFRAME       = None
 RISK_CONFIG             = {}
 START_CAPITAL           = 1000.0
 RISK_PER_TRADE_PCT      = 1.0
-LEVERAGE                = 20
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 50.0
 MIN_PNL_CONSTRAINT      = 0.0
@@ -81,6 +80,9 @@ def objective(trial):
     regime_window     = trial.suggest_int('regime_window',     10, 40)
     allow_range_trade = trial.suggest_int('allow_range_trade',  0,  1)
 
+    # --- Risiko ---
+    leverage = trial.suggest_int('leverage', 5, 20)
+
     # --- MDEF Multi-Timeframe Parameter ---
     use_multitf_filter = trial.suggest_int('use_multitf_filter', 0, 1)
     meso_tf_mult       = trial.suggest_int('meso_tf_mult',       2,  8)
@@ -88,7 +90,7 @@ def objective(trial):
 
     signal_config = {
         'risk_per_trade_pct':   RISK_PER_TRADE_PCT,
-        'leverage':             LEVERAGE,
+        'leverage':             leverage,
         'entropy_window':       entropy_window,
         'entropy_lookback':     entropy_lookback,
         'energy_lookback':      energy_lookback,
@@ -134,7 +136,7 @@ def objective(trial):
 
 def main():
     global HISTORICAL_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
-    global START_CAPITAL, RISK_PER_TRADE_PCT, LEVERAGE
+    global START_CAPITAL, RISK_PER_TRADE_PCT
     global MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
     global MIN_PNL_CONSTRAINT, MIN_TRADES_CONSTRAINT, OPTIM_MODE
 
@@ -177,7 +179,6 @@ def main():
         secrets = json.load(f)
 
     RISK_CONFIG = settings.get('risk', {})
-    LEVERAGE    = int(settings.get('risk', {}).get('leverage', 5))
 
     accounts = secrets.get('mbot', [])
     if not accounts:
@@ -287,7 +288,7 @@ def main():
 
         best_signal_config = {
             'risk_per_trade_pct':   RISK_PER_TRADE_PCT,
-            'leverage':             LEVERAGE,
+            'leverage':             best_params['leverage'],
             'entropy_window':       best_params['entropy_window'],
             'entropy_lookback':     best_params['entropy_lookback'],
             'energy_lookback':      best_params['energy_lookback'],
@@ -356,7 +357,7 @@ def main():
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       leverage={LEVERAGE}x | risk_per_trade={RISK_PER_TRADE_PCT:.1f}% "
+        print(f"       leverage={best_params['leverage']}x | risk_per_trade={RISK_PER_TRADE_PCT:.1f}% "
               f"entropy_window={best_params['entropy_window']} "
               f"entropy_lookback={best_params['entropy_lookback']} "
               f"energy_lookback={best_params['energy_lookback']}")
