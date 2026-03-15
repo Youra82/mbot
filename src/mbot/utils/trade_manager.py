@@ -2,9 +2,10 @@
 """
 Trade Manager fuer mbot.
 
-- Entry mit vollem verfuegbarem Kapital + 20x Hebel
+- Entry mit risiko-basierter Positionsgroesse (wie dnabot)
+- Positionsgroesse = (Kapital * risk_per_trade_pct%) / SL-Abstand (Preis)
 - SL = sl_account_pct / leverage Prozent Preisbewegung  (z.B. 2% / 20 = 0.1% Preis)
-- TP = tp_price_pct Prozent Preisbewegung               (z.B. 1.0% Preis = 20% Konto-Gewinn)
+- TP = tp_price_pct Prozent Preisbewegung               (z.B. 1.0% Preis)
 - Global State: nur EIN Symbol darf gleichzeitig traden
 """
 
@@ -124,17 +125,20 @@ def calculate_sl_tp_prices(entry_price: float, side: str,
     return sl_price, tp_price
 
 
-def calculate_contracts(balance_usdt: float, leverage: int,
-                          entry_price: float, min_amount: float,
-                          risk_per_trade_pct: float = 100.0) -> float:
+def calculate_contracts(balance_usdt: float, entry_price: float,
+                          sl_price: float, min_amount: float,
+                          risk_per_trade_pct: float = 1.0) -> float:
     """
-    Berechnet die Kontraktanzahl fuer den Trade.
-    risk_per_trade_pct: Anteil des Kapitals der riskiert wird (z.B. 10.0 = 10%).
+    Berechnet die Kontraktanzahl risiko-basiert (wie dnabot).
+    risk_per_trade_pct: Anteil des Kapitals der riskiert wird (z.B. 1.0 = 1%).
+    Positionsgroesse = (balance * risk_pct%) / SL-Abstand-in-Preis
     """
-    effective_balance = balance_usdt * risk_per_trade_pct / 100.0
-    position_value    = effective_balance * leverage
-    contracts         = position_value / entry_price
-    contracts         = max(contracts, min_amount)
+    risk_amount  = balance_usdt * risk_per_trade_pct / 100.0
+    sl_distance  = abs(entry_price - sl_price)
+    if sl_distance <= 0:
+        return min_amount
+    contracts = risk_amount / sl_distance
+    contracts = max(contracts, min_amount)
     return contracts
 
 
@@ -156,7 +160,7 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     margin_mode        = risk_config.get('margin_mode', 'isolated')
     sl_account_pct     = float(risk_config.get('sl_account_pct', 2.0))
     tp_price_pct       = float(risk_config.get('tp_price_pct', 1.0))
-    risk_per_trade_pct = float(risk_config.get('risk_per_trade_pct', 100.0))
+    risk_per_trade_pct = float(risk_config.get('risk_per_trade_pct', 1.0))
 
     # --- Kapital abrufen ---
     balance = exchange.fetch_balance_usdt()
@@ -168,11 +172,29 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     exchange.set_margin_mode(symbol, margin_mode)
     exchange.set_leverage(symbol, leverage, margin_mode)
 
-    # --- Entry platzieren ---
-    entry_side = 'buy' if side == 'long' else 'sell'
-    min_amount = exchange.fetch_min_amount_tradable(symbol)
+    entry_side    = 'buy' if side == 'long' else 'sell'
+    min_amount    = exchange.fetch_min_amount_tradable(symbol)
     current_price = signal['entry_price']
-    contracts = calculate_contracts(balance, leverage, current_price, min_amount,
+
+    atr         = signal.get('atr')
+    atr_sl_mult = signal.get('atr_sl_mult')
+    atr_tp_mult = signal.get('atr_tp_mult')
+
+    # --- SL-Preis vorab schaetzen (fuer risiko-basierte Positionsgroesse) ---
+    if atr and atr > 0 and atr_sl_mult:
+        if side == 'long':
+            est_sl_price = current_price - atr_sl_mult * atr
+        else:
+            est_sl_price = current_price + atr_sl_mult * atr
+    else:
+        sl_price_pct = sl_account_pct / leverage
+        if side == 'long':
+            est_sl_price = current_price * (1.0 - sl_price_pct / 100.0)
+        else:
+            est_sl_price = current_price * (1.0 + sl_price_pct / 100.0)
+
+    # --- Positionsgroesse: risiko-basiert (wie dnabot) ---
+    contracts = calculate_contracts(balance, current_price, est_sl_price, min_amount,
                                     risk_per_trade_pct)
 
     # Notional-Check
@@ -182,7 +204,7 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
         return False
 
     logger.info(f"Platziere Entry: {side.upper()} {contracts:.4f} {symbol} "
-                f"| Hebel: {leverage}x | Kapital: {balance:.2f} USDT")
+                f"| Hebel: {leverage}x | Kapital: {balance:.2f} USDT | Risiko: {risk_per_trade_pct}%")
 
     try:
         entry_order = exchange.place_market_order(symbol, entry_side, contracts)
@@ -201,13 +223,7 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     if filled <= 0:
         filled = contracts
 
-    # --- SL / TP berechnen ---
-    # MERS: ATR-basiert (atr + atr_sl_mult / atr_tp_mult im signal)
-    # Fallback: alte prozentbasierte Berechnung aus risk_config
-    atr         = signal.get('atr')
-    atr_sl_mult = signal.get('atr_sl_mult')
-    atr_tp_mult = signal.get('atr_tp_mult')
-
+    # --- SL / TP mit tatsaechlichem Fill-Preis berechnen ---
     if atr and atr > 0 and atr_sl_mult and atr_tp_mult:
         # ATR-basiert: Neuberechnung mit tatsaechlichem Fill-Preis
         if side == 'long':

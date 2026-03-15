@@ -102,10 +102,8 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
 
     Returns dict mit allen Ergebnissen.
     """
-    leverage           = int(signal_config.get('leverage',
-                             risk_config.get('leverage', 20)))
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
-                               risk_config.get('risk_per_trade_pct', 100.0)))
+                               risk_config.get('risk_per_trade_pct', 1.0)))
 
     # --- Signal-Parameter auslesen ---
     entropy_window    = int(signal_config.get('entropy_window',       20))
@@ -169,13 +167,20 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                     result = 'loss'
                     exit_p = sl_p
 
-                if side == 'long':
-                    pnl_pct = (exit_p - entry) / entry * leverage * 100
+                # Risiko-basierte Positionsgroesse (wie dnabot)
+                sl_distance = abs(entry - trade['sl_price'])
+                risk_amount = capital * risk_per_trade_pct / 100.0
+                if sl_distance > 0:
+                    pos_contracts = risk_amount / sl_distance
                 else:
-                    pnl_pct = (entry - exit_p) / entry * leverage * 100
+                    pos_contracts = 0.0
 
-                effective_capital = capital * risk_per_trade_pct / 100.0
-                pnl_usdt = effective_capital * pnl_pct / 100
+                if side == 'long':
+                    pnl_usdt = pos_contracts * (exit_p - entry)
+                else:
+                    pnl_usdt = pos_contracts * (entry - exit_p)
+
+                pnl_pct  = pnl_usdt / capital * 100 if capital > 0 else 0.0
                 capital  = max(capital + pnl_usdt, 0.0)
 
                 idx = df.index[i]
