@@ -281,6 +281,7 @@ def mode_auto_portfolio(target_max_dd):
     print(f'  Ziel: Maximaler Profit bei maximal {target_max_dd:.1f}% Drawdown.'
           f' | {start_date} → {end_date}')
     print(f'  Modell: Gemeinsamer Kapital-Pool — alle Trades kompoundieren zusammen')
+    print(f'  Constraint: max. 1 Timeframe pro Coin (bester TF wird automatisch gewaehlt)')
     print(f'{sep}\n')
 
     print(f'  Lade Backtest-Ergebnisse ...', end='', flush=True)

@@ -128,14 +128,35 @@ def run_portfolio_simulation(results_dict: dict, start_capital: float) -> dict:
     return _simulate_portfolio(trades, start_capital)
 
 
+def _best_tf_per_coin(results_dict: dict) -> dict:
+    """
+    Behaelt pro Coin nur den Timeframe mit dem hoechsten individuellen PnL.
+    Verhindert dass z.B. BTC/15m + BTC/1h + BTC/4h gleichzeitig ins Portfolio kommen.
+    """
+    best = {}  # coin_base -> (filename, pnl)
+    for fn, r in results_dict.items():
+        coin = r.get('symbol', '').replace('/USDT:USDT', '').replace('/', '').replace(':', '')
+        pnl  = r.get('total_pnl_pct', 0.0)
+        if coin not in best or pnl > best[coin][1]:
+            best[coin] = (fn, pnl)
+    return {fn: results_dict[fn] for fn, _ in best.values()}
+
+
 def find_best_portfolio(results_dict: dict, start_capital: float,
                         target_max_dd: float, verbose: bool = False) -> dict:
     """
     Findet die beste Kombination aus den uebergebenen Strategien,
     die den Drawdown-Constraint erfuellt und den PnL maximiert.
+    Regel: max. 1 Timeframe pro Coin (bester individueller PnL wird behalten).
     Bricht fruehzeitig ab, wenn mehr Strategien keine Verbesserung bringen.
     """
-    keys = list(results_dict.keys())
+    # Pro Coin nur besten TF behalten
+    filtered = _best_tf_per_coin(results_dict)
+    if verbose and len(filtered) < len(results_dict):
+        skipped = len(results_dict) - len(filtered)
+        print(f'  Constraint: 1 TF/Coin → {skipped} schwaecher(e) Timeframe(s) ausgeschlossen.')
+
+    keys = list(filtered.keys())
     n    = len(keys)
 
     max_combo_size     = min(n, 8)
@@ -150,7 +171,7 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
         size_best_dd  = 0.0
 
         for combo in combos:
-            subset = {k: results_dict[k] for k in combo}
+            subset = {k: filtered[k] for k in combo}
             trades = _merge_trades_chronological(subset)
             port   = _simulate_portfolio(trades, start_capital)
 
