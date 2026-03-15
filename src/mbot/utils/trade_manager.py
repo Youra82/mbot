@@ -4,7 +4,7 @@ Trade Manager fuer mbot.
 
 - Entry mit risiko-basierter Positionsgroesse (wie dnabot)
 - Positionsgroesse = (Kapital * risk_per_trade_pct%) / SL-Abstand (Preis)
-- SL = sl_account_pct / leverage Prozent Preisbewegung  (z.B. 2% / 20 = 0.1% Preis)
+- SL = sl_account_pct / leverage Prozent Preisbewegung  (z.B. 2% / 5 = 0.4% Preis)
 - TP = tp_price_pct Prozent Preisbewegung               (z.B. 1.0% Preis)
 - Global State: nur EIN Symbol darf gleichzeitig traden
 """
@@ -156,7 +156,7 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     Returns True wenn Trade erfolgreich platziert.
     """
     side               = signal['side']
-    leverage           = int(risk_config.get('leverage', 20))
+    leverage           = int(risk_config.get('leverage', 5))
     margin_mode        = risk_config.get('margin_mode', 'isolated')
     sl_account_pct     = float(risk_config.get('sl_account_pct', 2.0))
     tp_price_pct       = float(risk_config.get('tp_price_pct', 1.0))

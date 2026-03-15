@@ -177,7 +177,7 @@ def main():
         secrets = json.load(f)
 
     RISK_CONFIG = settings.get('risk', {})
-    LEVERAGE    = int(settings.get('risk', {}).get('leverage', 20))
+    LEVERAGE    = int(settings.get('risk', {}).get('leverage', 5))
 
     accounts = secrets.get('mbot', [])
     if not accounts:
