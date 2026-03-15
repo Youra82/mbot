@@ -152,16 +152,18 @@ def test_global_state_read_write():
 
 
 def test_contracts_calculation():
-    """Prueft Kontraktberechnung: volles Kapital mit Hebel"""
-    balance  = 100.0
-    leverage = 20
-    price    = 50000.0
-    min_amt  = 0.001
+    """Prueft Kontraktberechnung: risiko-basiert (risk_pct% des Kapitals / SL-Abstand)"""
+    balance          = 100.0
+    risk_per_trade   = 1.0     # 1%
+    entry_price      = 50000.0
+    sl_price         = 49950.0  # 0.1% Abstand
+    min_amt          = 0.001
 
-    contracts = calculate_contracts(balance, leverage, price, min_amt)
-    expected  = (balance * leverage) / price  # 100 * 20 / 50000 = 0.04
-    assert abs(contracts - expected) < 1e-6, f'Erwartet {expected}, got {contracts}'
-    print(f'Kontraktberechnung korrekt: {contracts:.4f} Kontrakte fuer {balance} USDT * {leverage}x @ {price}')
+    contracts = calculate_contracts(balance, entry_price, sl_price, min_amt, risk_per_trade)
+    sl_dist   = abs(entry_price - sl_price)  # 50.0
+    expected  = (balance * risk_per_trade / 100.0) / sl_dist  # 1.0 / 50 = 0.02
+    assert abs(contracts - expected) < 1e-6, f'Erwartet {expected:.6f}, got {contracts:.6f}'
+    print(f'Kontraktberechnung korrekt: {contracts:.4f} Kontrakte | Risiko={risk_per_trade}% | SL-Abstand={sl_dist} USDT')
 
 
 # ============================================================
@@ -183,18 +185,23 @@ def test_full_mbot_workflow_on_bitget(test_setup):
     exchange.set_leverage(symbol, leverage, margin_mode)
     time.sleep(1)
 
-    # --- Entry berechnen ---
-    min_amount  = exchange.fetch_min_amount_tradable(symbol)
-    ticker      = exchange.exchange.fetch_ticker(symbol)
-    price       = float(ticker['last'])
-    contracts   = calculate_contracts(bal, leverage, price, min_amount)
-    notional    = contracts * price
+    # --- Entry berechnen (risiko-basiert, kleines Exposure fuer Test) ---
+    simulated_balance  = 50.0   # Fixer Testwert – unabhaengig vom echten Kontostand
+    risk_per_trade_pct = 0.1    # 0.1% Risiko
+    sl_pct             = 0.8    # 0.8% SL-Abstand -> Notional = 50*0.001/0.008 = 6.25 USDT
+
+    min_amount = exchange.fetch_min_amount_tradable(symbol)
+    ticker     = exchange.exchange.fetch_ticker(symbol)
+    price      = float(ticker['last'])
+    sl_price   = price * (1 - sl_pct / 100)
+    contracts  = calculate_contracts(simulated_balance, price, sl_price, min_amount, risk_per_trade_pct)
+    notional   = contracts * price
 
     print(f'[Schritt 1/3] Entry: LONG {contracts:.2f} PEPE @ ~{price:.6f} | Notional: {notional:.2f} USDT')
 
     # --- Entry platzieren ---
     try:
-        entry_order = exchange.place_market_order(symbol, 'buy', contracts)
+        entry_order = exchange.place_market_order(symbol, 'buy', contracts, margin_mode=margin_mode)
     except Exception as e:
         pytest.fail(f'Entry fehlgeschlagen: {e}')
 
@@ -204,11 +211,12 @@ def test_full_mbot_workflow_on_bitget(test_setup):
     time.sleep(2)
 
     # --- SL/TP berechnen und platzieren ---
-    sl_price, tp_price = calculate_sl_tp_prices(entry_price, 'long', leverage, 2.0, 1.0)
-    print(f'[Schritt 2/3] SL={sl_price:.6f} | TP={tp_price:.6f}')
+    tp_price = entry_price * (1 + sl_pct * 2 / 100)  # 2:1 R:R
+    sl_price_final = entry_price * (1 - sl_pct / 100)
+    print(f'[Schritt 2/3] SL={sl_price_final:.6f} | TP={tp_price:.6f}')
 
     try:
-        exchange.place_trigger_market_order(symbol, 'sell', filled, sl_price, reduce=True)
+        exchange.place_trigger_market_order(symbol, 'sell', filled, sl_price_final, reduce=True)
         time.sleep(1)
         exchange.place_trigger_market_order(symbol, 'sell', filled, tp_price, reduce=True)
     except Exception as e:

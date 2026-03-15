@@ -150,13 +150,8 @@ class Exchange:
 
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
         try:
-            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
-            if margin_mode.lower() == 'isolated':
-                self.exchange.set_leverage(leverage, symbol, params={**params, 'holdSide': 'long'})
-                time.sleep(0.2)
-                self.exchange.set_leverage(leverage, symbol, params={**params, 'holdSide': 'short'})
-            else:
-                self.exchange.set_leverage(leverage, symbol, params=params)
+            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'marginMode': margin_mode.lower()}
+            self.exchange.set_leverage(leverage, symbol, params=params)
             logger.info(f"Hebel fuer {symbol} auf {leverage}x gesetzt.")
         except ccxt.ExchangeError as e:
             if any(x in str(e) for x in ['Leverage not changed', '40052']):
@@ -168,11 +163,18 @@ class Exchange:
 
     # --- Orders ---
 
-    def place_market_order(self, symbol: str, side: str, amount: float, reduce: bool = False):
+    def place_market_order(self, symbol: str, side: str, amount: float, reduce: bool = False,
+                            margin_mode: str = 'isolated', hold_side: Optional[str] = None):
         try:
-            params = {'reduceOnly': reduce, 'productType': 'USDT-FUTURES'}
+            params = {
+                'productType': 'USDT-FUTURES',
+                'marginCoin':  'USDT',
+                'marginMode':  margin_mode,
+                'hedged':      True,
+                'reduceOnly':  reduce,
+            }
             amount_str = self.amount_to_precision(symbol, amount)
-            logger.info(f"Market Order: {side.upper()} {amount_str} {symbol}")
+            logger.info(f"Market Order: {side.upper()} {amount_str} {symbol} hedged=True reduce={reduce}")
             return self.exchange.create_order(symbol, 'market', side, float(amount_str), params=params)
         except ccxt.InsufficientFunds as e:
             logger.error(f"Nicht genuegend Guthaben: {e}")
@@ -182,17 +184,22 @@ class Exchange:
             raise
 
     def place_trigger_market_order(self, symbol: str, side: str, amount: float,
-                                    trigger_price: float, reduce: bool = False):
+                                    trigger_price: float, reduce: bool = False,
+                                    hold_side: Optional[str] = None):
         """TP/SL Trigger Order (reduceOnly)."""
         try:
             amount_str = self.amount_to_precision(symbol, amount)
             tp_str = self.price_to_precision(symbol, trigger_price)
             params = {
                 'triggerPrice': tp_str,
-                'reduceOnly': reduce,
-                'productType': 'USDT-FUTURES',
+                'reduceOnly':   reduce,
+                'productType':  'USDT-FUTURES',
+                'marginMode':   'isolated',
+                'hedged':       True,
             }
-            logger.info(f"Trigger Market Order: {side.upper()} {amount_str} {symbol} @ {tp_str}")
+            if hold_side:
+                params['holdSide'] = hold_side
+            logger.info(f"Trigger Market Order: {side.upper()} {amount_str} {symbol} @ {tp_str} hedged=True")
             return self.exchange.create_order(symbol, 'market', side, float(amount_str), params=params)
         except Exception as e:
             logger.error(f"Fehler bei Trigger Order: {e}", exc_info=True)
@@ -222,9 +229,10 @@ class Exchange:
                 logger.warning(f"Keine offene Position zum Schliessen fuer {symbol}.")
                 return None
             pos = positions[0]
-            close_side = 'sell' if pos['side'] == 'long' else 'buy'
+            pos_side = pos['side']  # 'long' or 'short'
+            close_side = 'sell' if pos_side == 'long' else 'buy'
             amount = float(pos.get('contracts') or pos.get('contractSize'))
-            logger.info(f"Schliesse {pos['side']} Position fuer {symbol} ({amount} Kontrakte).")
+            logger.info(f"Schliesse {pos_side} Position fuer {symbol} ({amount} Kontrakte).")
             return self.place_market_order(symbol, close_side, amount, reduce=True)
         except Exception as e:
             logger.error(f"Fehler beim Schliessen der Position: {e}")

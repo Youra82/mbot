@@ -207,7 +207,8 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
                 f"| Hebel: {leverage}x | Kapital: {balance:.2f} USDT | Risiko: {risk_per_trade_pct}%")
 
     try:
-        entry_order = exchange.place_market_order(symbol, entry_side, contracts)
+        entry_order = exchange.place_market_order(symbol, entry_side, contracts,
+                                                   margin_mode=margin_mode)
     except Exception as e:
         logger.error(f"Entry fehlgeschlagen: {e}")
         return False
