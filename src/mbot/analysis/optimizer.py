@@ -3,7 +3,7 @@
 mbot MERS Parameter Optimizer (Optuna)
 
 Optimiert die MERS Signal-Parameter fuer jedes Symbol/Timeframe-Paar.
-Risiko-Parameter (risk_per_trade_pct) werden vom User vorgegeben, leverage aus settings.json.
+Risiko-Parameter (risk_per_trade_pct, leverage) werden von Optuna automatisch optimiert.
 SL/TP werden ATR-basiert durch atr_sl_mult / atr_tp_mult gesteuert.
 
 Optimierte Parameter (Signal):
@@ -17,8 +17,8 @@ Optimierte Parameter (Signal):
   atr_tp_mult          : TP = entry +/- atr_tp_mult * ATR (1.0-6.0, immer > atr_sl_mult)
 
 Fixe Parameter (vom User vorgegeben):
-  risk_per_trade_pct   : Risiko pro Trade in % (z.B. 1.0)
-  leverage             : aus settings.json → risk.leverage
+  risk_per_trade_pct   : Risiko pro Trade in % (0.5 - 3.0, Optuna)
+  leverage             : Hebel (5 - 20, Optuna)
 
 Gespeicherte Config-Datei: src/mbot/strategy/configs/config_BTCUSDTUSDT_6h_mers.json
 """
@@ -47,7 +47,6 @@ CURRENT_SYMBOL          = None
 CURRENT_TIMEFRAME       = None
 RISK_CONFIG             = {}
 START_CAPITAL           = 1000.0
-RISK_PER_TRADE_PCT      = 1.0
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 50.0
 MIN_PNL_CONSTRAINT      = 0.0
@@ -81,7 +80,8 @@ def objective(trial):
     allow_range_trade = trial.suggest_int('allow_range_trade',  0,  1)
 
     # --- Risiko ---
-    leverage = trial.suggest_int('leverage', 5, 20)
+    leverage         = trial.suggest_int(  'leverage',          5,   20)
+    risk_per_trade   = trial.suggest_float('risk_per_trade_pct', 0.5, 3.0, step=0.25)
 
     # --- MDEF Multi-Timeframe Parameter ---
     use_multitf_filter = trial.suggest_int('use_multitf_filter', 0, 1)
@@ -89,7 +89,7 @@ def objective(trial):
     macro_tf_mult      = trial.suggest_int('macro_tf_mult',      8, 32)
 
     signal_config = {
-        'risk_per_trade_pct':   RISK_PER_TRADE_PCT,
+        'risk_per_trade_pct':   risk_per_trade,
         'leverage':             leverage,
         'entropy_window':       entropy_window,
         'entropy_lookback':     entropy_lookback,
@@ -136,7 +136,7 @@ def objective(trial):
 
 def main():
     global HISTORICAL_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
-    global START_CAPITAL, RISK_PER_TRADE_PCT
+    global START_CAPITAL
     global MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
     global MIN_PNL_CONSTRAINT, MIN_TRADES_CONSTRAINT, OPTIM_MODE
 
@@ -148,8 +148,6 @@ def main():
     parser.add_argument('--start_date',    type=str, required=True)
     parser.add_argument('--end_date',      type=str, required=True)
     parser.add_argument('--start_capital',      type=float, default=1000.0)
-    parser.add_argument('--risk_per_trade_pct', type=float, default=1.0,
-                        help='Risiko pro Trade in %% (z.B. 1.0)')
     parser.add_argument('--trials',        type=int,   default=200)
     parser.add_argument('--jobs',          type=int,   default=1,
                         help='Parallele Optuna-Jobs')
@@ -170,7 +168,6 @@ def main():
     MIN_PNL_CONSTRAINT      = args.min_pnl
     MIN_TRADES_CONSTRAINT   = args.min_trades
     START_CAPITAL           = args.start_capital
-    RISK_PER_TRADE_PCT      = args.risk_per_trade_pct
     OPTIM_MODE              = args.mode
 
     with open(os.path.join(PROJECT_ROOT, 'settings.json'), 'r') as f:
@@ -287,7 +284,7 @@ def main():
         best_pnl    = best_trial.value
 
         best_signal_config = {
-            'risk_per_trade_pct':   RISK_PER_TRADE_PCT,
+            'risk_per_trade_pct':   round(best_params['risk_per_trade_pct'], 2),
             'leverage':             best_params['leverage'],
             'entropy_window':       best_params['entropy_window'],
             'entropy_lookback':     best_params['entropy_lookback'],
@@ -357,7 +354,7 @@ def main():
         print(f"       PnL: {best_pnl:.2f}% | WR: {final_result.get('win_rate')}% "
               f"| Trades: {final_result.get('total_trades')} "
               f"| MaxDD: {final_result.get('max_drawdown')}%")
-        print(f"       leverage={best_params['leverage']}x | risk_per_trade={RISK_PER_TRADE_PCT:.1f}% "
+        print(f"       leverage={best_params['leverage']}x | risk_per_trade={best_params['risk_per_trade_pct']:.2f}% "
               f"entropy_window={best_params['entropy_window']} "
               f"entropy_lookback={best_params['entropy_lookback']} "
               f"energy_lookback={best_params['energy_lookback']}")

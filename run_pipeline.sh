@@ -114,10 +114,6 @@ read -p "Startkapital in USDT [Standard: 1000]: " CAP_INPUT
 CAP_INPUT="${CAP_INPUT//[$'\r\n ']/}"
 if [[ "$CAP_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then CAPITAL=$CAP_INPUT; else CAPITAL=1000; fi
 
-read -p "Risiko pro Trade in % [Standard: 1.0]: " RISK_INPUT
-RISK_INPUT="${RISK_INPUT//[$'\r\n ']/}"
-if [[ "$RISK_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then RISK=$RISK_INPUT; else RISK=1.0; fi
-
 # ── 5. Optimierungs-Modus ────────────────────────────────────────────────────
 echo ""
 echo -e "${YELLOW}Optimierungs-Modus:${NC}"
@@ -175,7 +171,6 @@ echo "$PAIRS" | while IFS=' ' read -r sym tf; do
         --start_date    "$START_DATE" \
         --end_date      "$END_DATE" \
         --start_capital "$CAPITAL" \
-        --risk_per_trade_pct "$RISK" \
         --trials        "$N_TRIALS" \
         --jobs          "$N_CORES" \
         --max_drawdown  "$MAX_DD" \
@@ -192,7 +187,7 @@ echo ""
 
 # ── [Schritt 2/3] Backtest-Validierung ───────────────────────────────────────
 echo -e "${YELLOW}[Schritt 2/3] Backtest-Validierung...${NC}"
-$PYTHON "$SCRIPT_DIR/run_backtest.py" --capital "$CAPITAL" --risk "$RISK"
+$PYTHON "$SCRIPT_DIR/run_backtest.py" --capital "$CAPITAL"
 
 echo ""
 

@@ -33,8 +33,6 @@ def main():
     parser = argparse.ArgumentParser(description='mbot Backtest-Validierung')
     parser.add_argument('--capital', type=float, default=1000.0,
                         help='Startkapital in USDT')
-    parser.add_argument('--risk',    type=float, default=1.0,
-                        help='Risiko pro Trade in %%')
     args = parser.parse_args()
 
     with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
@@ -59,12 +57,10 @@ def main():
         print(f'{RED}Keine Config-Dateien gefunden. Bitte zuerst run_pipeline.sh ausfuehren.{NC}')
         sys.exit(1)
 
-    risk_config = {'risk_per_trade_pct': args.risk}
-
     w = 68
     print(f"\n{'=' * w}")
     print(f"  mbot — Backtest-Validierung")
-    print(f"  Kapital: {args.capital:.0f} USDT | Risiko: {args.risk}% | Configs: {len(config_files)}")
+    print(f"  Kapital: {args.capital:.0f} USDT | Configs: {len(config_files)} | Risiko: aus Config (Optuna-optimiert)")
     print(f"{'=' * w}\n")
 
     all_results = []
@@ -93,6 +89,8 @@ def main():
             print(f'  {RED}Keine Daten. Ueberspringe.{NC}')
             continue
 
+        # risk_per_trade_pct kommt aus sig_cfg (Optuna-optimiert, in Config gespeichert)
+        risk_config = {'risk_per_trade_pct': sig_cfg.get('risk_per_trade_pct', 1.0)}
         result = run_backtest(df, sig_cfg, risk_config,
                               start_capital=args.capital, symbol=symbol)
         result['timeframe'] = tf
