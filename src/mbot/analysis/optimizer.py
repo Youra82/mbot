@@ -3,7 +3,7 @@
 mbot MERS Parameter Optimizer (Optuna)
 
 Optimiert die MERS Signal-Parameter fuer jedes Symbol/Timeframe-Paar.
-Risiko-Parameter (risk_per_trade_pct, leverage) werden fest vom User vorgegeben.
+Risiko-Parameter (risk_per_trade_pct) werden vom User vorgegeben, leverage aus settings.json.
 SL/TP werden ATR-basiert durch atr_sl_mult / atr_tp_mult gesteuert.
 
 Optimierte Parameter (Signal):
@@ -18,7 +18,7 @@ Optimierte Parameter (Signal):
 
 Fixe Parameter (vom User vorgegeben):
   risk_per_trade_pct   : Risiko pro Trade in % (z.B. 1.0)
-  leverage             : Hebel (z.B. 20)
+  leverage             : aus settings.json → risk.leverage
 
 Gespeicherte Config-Datei: src/mbot/strategy/configs/config_BTCUSDTUSDT_6h_mers.json
 """
@@ -148,8 +148,6 @@ def main():
     parser.add_argument('--start_capital',      type=float, default=1000.0)
     parser.add_argument('--risk_per_trade_pct', type=float, default=1.0,
                         help='Risiko pro Trade in %% (z.B. 1.0)')
-    parser.add_argument('--leverage',           type=int,   default=20,
-                        help='Hebel (z.B. 20)')
     parser.add_argument('--trials',        type=int,   default=200)
     parser.add_argument('--jobs',          type=int,   default=1,
                         help='Parallele Optuna-Jobs')
@@ -171,7 +169,6 @@ def main():
     MIN_TRADES_CONSTRAINT   = args.min_trades
     START_CAPITAL           = args.start_capital
     RISK_PER_TRADE_PCT      = args.risk_per_trade_pct
-    LEVERAGE                = args.leverage
     OPTIM_MODE              = args.mode
 
     with open(os.path.join(PROJECT_ROOT, 'settings.json'), 'r') as f:
@@ -180,6 +177,7 @@ def main():
         secrets = json.load(f)
 
     RISK_CONFIG = settings.get('risk', {})
+    LEVERAGE    = int(settings.get('risk', {}).get('leverage', 20))
 
     accounts = secrets.get('mbot', [])
     if not accounts:

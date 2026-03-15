@@ -118,10 +118,6 @@ read -p "Risiko pro Trade in % [Standard: 1.0]: " RISK_INPUT
 RISK_INPUT="${RISK_INPUT//[$'\r\n ']/}"
 if [[ "$RISK_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then RISK=$RISK_INPUT; else RISK=1.0; fi
 
-read -p "Hebel [Standard: 20]: " LEV_INPUT
-LEV_INPUT="${LEV_INPUT//[$'\r\n ']/}"
-if [[ "$LEV_INPUT" =~ ^[0-9]+$ ]]; then LEVERAGE=$LEV_INPUT; else LEVERAGE=20; fi
-
 # ── 5. Optimierungs-Modus ────────────────────────────────────────────────────
 echo ""
 echo -e "${YELLOW}Optimierungs-Modus:${NC}"
@@ -180,7 +176,6 @@ echo "$PAIRS" | while IFS=' ' read -r sym tf; do
         --end_date      "$END_DATE" \
         --start_capital "$CAPITAL" \
         --risk_per_trade_pct "$RISK" \
-        --leverage      "$LEVERAGE" \
         --trials        "$N_TRIALS" \
         --jobs          "$N_CORES" \
         --max_drawdown  "$MAX_DD" \
