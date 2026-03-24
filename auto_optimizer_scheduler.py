@@ -295,8 +295,8 @@ def main():
                 opt_failed.add((sym, tf))
 
         if opt_failed:
-            log.warning(f"Optimizer fehlgeschlagen für: "
-                        f"{[f'{s.split(\"/\")[0]}/{t}' for s, t in opt_failed]}")
+            failed_display = [f"{s.split('/')[0]}/{t}" for s, t in opt_failed]
+            log.warning(f"Optimizer fehlgeschlagen für: {failed_display}")
 
         # Last-run Timestamp speichern
         with open(LAST_RUN_FILE, 'w') as f:
