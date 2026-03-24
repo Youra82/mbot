@@ -287,17 +287,21 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     tp_dist_pct  = abs(tp_price - entry_price) / entry_price * 100
     rr_ratio     = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 0
 
+    direction_emoji = "🟢" if side == 'long' else "🔴"
+    risk_usdt = balance * risk_per_trade_pct / 100.0
     msg = (
-        f"mbot MERS - NEUER TRADE\n\n"
-        f"Symbol:    {symbol} ({timeframe})\n"
-        f"Richtung:  {side.upper()}\n"
-        f"Entry:     {entry_price:.4f} USDT\n"
-        f"SL:        {sl_price:.4f} ({sl_dist_pct:.2f}% Preis)\n"
-        f"TP:        {tp_price:.4f} ({tp_dist_pct:.2f}% Preis)\n"
-        f"R:R:       1:{rr_ratio:.1f}\n"
-        f"Hebel:     {leverage}x | Kapital: {balance:.2f} USDT\n"
-        f"Kontrakte: {filled:.4f}\n\n"
-        f"Signal:    {signal.get('reason', '')}"
+        f"🚀 mbot SIGNAL: {symbol} ({timeframe})\n"
+        f"{'─' * 32}\n"
+        f"{direction_emoji} Richtung: {side.upper()}\n"
+        f"💰 Entry:   ${entry_price:.6f}\n"
+        f"🛑 SL:      ${sl_price:.6f} (-{sl_dist_pct:.2f}%)\n"
+        f"🎯 TP:      ${tp_price:.6f} (+{tp_dist_pct:.2f}%)\n"
+        f"📊 R:R:     1:{rr_ratio:.1f}\n"
+        f"⚙️ Hebel:   {leverage}x\n"
+        f"🛡️ Risiko:  {risk_per_trade_pct:.1f}% ({risk_usdt:.2f} USDT)\n"
+        f"📦 Kontr.:  {filled:.0f}\n"
+        f"{'─' * 32}\n"
+        f"🔍 Signal:  {signal.get('reason', '')}"
     )
     send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
     logger.info("Trade erfolgreich platziert und Telegram-Nachricht gesendet.")
@@ -351,15 +355,17 @@ def check_position_status(exchange, symbol: str, timeframe: str,
     side_str = state.get('side', '?')
     since    = state.get('active_since', '?')
 
+    direction_emoji = "🟢" if side_str == 'long' else "🔴"
     msg = (
-        f"mbot - TRADE GESCHLOSSEN\n\n"
-        f"Symbol:  {symbol} ({timeframe})\n"
-        f"Seite:   {side_str.upper() if side_str else '?'}\n"
-        f"Entry:   {entry_p}\n"
-        f"SL:      {sl_p}\n"
-        f"TP:      {tp_p}\n"
-        f"Geoeffnet seit: {since}\n\n"
-        f"Warte auf naechstes Signal..."
+        f"✅ mbot TRADE GESCHLOSSEN\n"
+        f"{'─' * 32}\n"
+        f"{direction_emoji} {side_str.upper() if side_str else '?'} | {symbol} ({timeframe})\n"
+        f"💰 Entry:  ${entry_p}\n"
+        f"🛑 SL:     ${sl_p}\n"
+        f"🎯 TP:     ${tp_p}\n"
+        f"🕐 Seit:   {since}\n"
+        f"{'─' * 32}\n"
+        f"⏳ Warte auf naechstes Signal..."
     )
     send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
 

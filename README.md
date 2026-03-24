@@ -440,6 +440,20 @@ Grund:   Entropy steigt / Beschleunigung dreht
 
 ---
 
+## Auto-Optimizer manuell auslösen
+
+```bash
+# Scheduler direkt starten (prüft ob fällig, hält sich an enabled + Schedule)
+.venv/bin/python3 auto_optimizer_scheduler.py
+
+# Sofort erzwingen — ignoriert enabled und Schedule (für Tests)
+.venv/bin/python3 auto_optimizer_scheduler.py --force
+```
+
+`--force` überspringt den `enabled`-Check und den Zeitplan-Check. Nützlich um nach einer Konfigurationsänderung direkt zu testen, ob der Ablauf korrekt funktioniert.
+
+---
+
 ## Tägliche Verwaltung
 
 ```bash
@@ -455,9 +469,6 @@ cat artifacts/tracker/global_state.json
 
 # Global State manuell zurücksetzen
 echo '{"active_symbol":null,"active_timeframe":null,"active_since":null,"entry_price":null,"side":null,"sl_price":null,"tp_price":null,"contracts":null}' > artifacts/tracker/global_state.json
-
-# Auto-Optimizer erzwingen
-.venv/bin/python3 auto_optimizer_scheduler.py --force
 
 # Bot aktualisieren
 ./update.sh

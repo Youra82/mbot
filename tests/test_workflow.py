@@ -21,6 +21,7 @@ from mbot.utils.trade_manager import (
     read_global_state, write_global_state, clear_global_state,
     calculate_sl_tp_prices, calculate_contracts, _empty_state,
 )
+from mbot.utils.telegram import send_message
 
 
 # ============================================================
@@ -79,7 +80,9 @@ def test_setup():
     # Global State zuruecksetzen
     clear_global_state()
 
-    yield exchange, symbol, timeframe, leverage, margin_mode, test_logger
+    telegram_config = secrets.get('telegram', {})
+
+    yield exchange, symbol, timeframe, leverage, margin_mode, test_logger, telegram_config
 
     # Teardown
     print('\n[Teardown] Raeume nach dem Test auf...')
@@ -172,7 +175,7 @@ def test_contracts_calculation():
 
 def test_full_mbot_workflow_on_bitget(test_setup):
     """Vollstaendiger Live-Test: Entry + SL/TP + Schliessen auf Bitget (PEPE)"""
-    exchange, symbol, timeframe, leverage, margin_mode, logger = test_setup
+    exchange, symbol, timeframe, leverage, margin_mode, logger, telegram_config = test_setup
 
     bal = exchange.fetch_balance_usdt()
     print(f'\nVerfuegbares Guthaben: {bal:.4f} USDT')
@@ -214,6 +217,31 @@ def test_full_mbot_workflow_on_bitget(test_setup):
     tp_price = entry_price * (1 + sl_pct * 2 / 100)  # 2:1 R:R
     sl_price_final = entry_price * (1 - sl_pct / 100)
     print(f'[Schritt 2/3] SL={sl_price_final:.6f} | TP={tp_price:.6f}')
+
+    # --- Telegram-Benachrichtigung ---
+    sl_dist_pct = abs(entry_price - sl_price_final) / entry_price * 100
+    tp_dist_pct = abs(tp_price - entry_price) / entry_price * 100
+    risk_usdt   = simulated_balance * risk_per_trade_pct / 100.0
+    rr_ratio    = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 0
+    tg_msg = (
+        f"🚀 mbot SIGNAL: {symbol} ({timeframe})\n"
+        f"{'─' * 32}\n"
+        f"🟢 Richtung: LONG\n"
+        f"💰 Entry:   ${entry_price:.6f}\n"
+        f"🛑 SL:      ${sl_price_final:.6f} (-{sl_dist_pct:.2f}%)\n"
+        f"🎯 TP:      ${tp_price:.6f} (+{tp_dist_pct:.2f}%)\n"
+        f"📊 R:R:     1:{rr_ratio:.1f}\n"
+        f"⚙️ Hebel:   {leverage}x\n"
+        f"🛡️ Risiko:  {risk_per_trade_pct:.1f}% ({risk_usdt:.2f} USDT)\n"
+        f"📦 Kontr.:  {filled:.0f}\n"
+        f"{'─' * 32}\n"
+        f"🔍 Signal:  [TEST]"
+    )
+    try:
+        send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), tg_msg)
+        print('Telegram-Benachrichtigung gesendet.')
+    except Exception as e:
+        print(f'WARNUNG: Telegram fehlgeschlagen: {e}')
 
     try:
         exchange.place_trigger_market_order(symbol, 'sell', filled, sl_price_final, reduce=True)
