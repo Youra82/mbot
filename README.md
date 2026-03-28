@@ -476,6 +476,58 @@ echo '{"active_symbol":null,"active_timeframe":null,"active_since":null,"entry_p
 
 ---
 
+## Coin & Timeframe Empfehlungen
+
+MBot ist eine **Entropy-basierte Strategie** — er erkennt den Übergang von einem chaotischen (ungeordneten) in einen geordneten Marktzustand anhand von Shannon-Entropie, kinetischer Energie (Preisimpuls²) und Beschleunigung. Benötigt: klare Regime-Übergänge von Konsolidierung zu Trend.
+
+### Effektive Zeitspannen je Timeframe
+
+| TF | Entropy(20K) | Energy(5K) | ATR(14) | Regime-Auflösung | Geeignet |
+|---|---|---|---|---|---|
+| 15m | 5h | 75min | 3.5h | Zu kurz — Noise dominiert | ❌ |
+| 30m | 10h | 2.5h | 7h | Marginal | ⚠️ |
+| **1h** | **20h** | **5h** | **14h** | **Gut** | **✅✅** |
+| **2h** | **40h** | **10h** | **28h** | **Sehr gut** | **✅✅** |
+| **4h** | **80h** | **20h** | **56h** | **Exzellent** | **✅✅** |
+| 6h | 120h | 30h | 84h | Gut, aber langsamer | ✅ |
+| 1d | 20d | 5d | 14d | Zu träge | ⚠️ |
+
+Auf 15m misst die Entropie nur 5h Marktgeschehen — statistisch zu wenig. Der Energy-Lookback von 5 Kerzen entspricht auf 15m nur 75 Minuten (Noise statt echtem Impuls). Ab 1h werden Entropie und Energie statistisch aussagekräftig.
+
+### Coin-Eignung
+
+| Coin | Regime-Übergänge | Entropie-Verhalten | Impuls-Klarheit | Bewertung |
+|---|---|---|---|---|
+| **BTC** | Klassisch: Konsolidierung → Breakout → Trend | Entropie fällt klar vor Bewegung | Starker, messbarer Impuls | ✅✅ Beste Wahl |
+| **ETH** | Ähnlich BTC, etwas schnellere Übergänge | Gutes Entropie-Signal | Klarer Impuls | ✅✅ Sehr gut |
+| **SOL** | Starke Trending-Phasen nach Konsolidierung | Klare Entropie-Reduktion | Hoher Impuls | ✅ Gut |
+| **BNB** | Moderate Übergänge, stabil | Sauberes Entropie-Profil | Mittlerer Impuls | ✅ Gut |
+| **AVAX** | Gute Regime-Übergänge in Bullphasen | Solides Signal | Guter Impuls | ✅ Gut |
+| **ARB** | ETH-korreliert, klare Phasen | Gut | Mittlerer Impuls | ✅ Gut |
+| **LTC** | BTC-korreliert, moderate Übergänge | Solide | Mittlerer Impuls | ⚠️ Mittel |
+| **XRP** | Vorhanden, aber unregelmäßig | Mittel | Mittel | ⚠️ Mittel |
+| **ADA** | Sehr träge Übergänge | Entropie-Änderungen klein | Schwacher Impuls | ⚠️ Schwach |
+| **DOGE** | Sentiment-getrieben, kein strukturiertes Regime | Entropie dauerhaft chaotisch | Unkontrollierbarer Impuls | ❌ Schlecht |
+| **SHIB/PEPE** | Keine echten Regime-Übergänge | Dauerhaft hohes Chaos | Kein messbarer Impuls | ❌❌ Nicht geeignet |
+
+### Empfohlene Kombinationen (Ranking)
+
+| Rang | Kombination | Begründung |
+|---|---|---|
+| 🥇 1 | **BTC 1h / 2h** | Klarste Entropie-Reduktion vor Breakouts, starker Impuls |
+| 🥇 1 | **ETH 1h / 2h** | Ähnlich BTC, gute Regime-Erkennung |
+| 🥈 2 | **SOL 1h** | Explosive Impuls-Phasen nach klarer Konsolidierung |
+| 🥉 3 | **BNB 2h** | Stabile, vorhersehbare Regime-Übergänge |
+| 4 | **AVAX 2h** | Gute Bullmarkt-Performance |
+| 4 | **ARB 1h** | ETH-korreliert, klare Bewegungen |
+| ❌ | **Alles auf 15m** | Entropie-Fenster (5h) zu kurz für statistisch valide Messung |
+| ❌ | **DOGE / SHIB** | Kein strukturiertes Entropie-Verhalten erkennbar |
+
+> **Hinweis:** Das Regime-Filter (Layer 2, `use_regime_filter: 1`) sollte aktiv sein. Im CHAOS-Regime werden alle Trades blockiert — der wichtigste Schutz gegen Fehlsignale bei Pumps und Meme-Coins.
+
+
+---
+
 ## Abhängigkeiten
 
 ```
