@@ -66,6 +66,7 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
         pnl_usdt         = round(float(t.get('portfolio_pnl_usdt', 0)), 4)
         kapital          = round(float(t.get('portfolio_capital_after', 0)), 4)
         risk_per_trade   = float(t.get('risk_per_trade_pct', 0))
+        leverage         = t.get('leverage', '—')
         kapital_vor      = kapital - pnl_usdt
         einsatz          = round(kapital_vor * risk_per_trade / 100.0, 4)
         datum            = str(t.get('entry_time', ''))[:16].replace('T', ' ')
@@ -76,6 +77,7 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
             'Symbol':          coin,
             'TF':              tf,
             'Richtung':        side,
+            'Hebel':           leverage,
             'Entry':           entry_p,
             'Exit':            exit_p,
             'Ergebnis':        ergebnis,
@@ -99,7 +101,7 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
     )
     col_widths = {
         'Nr': 5, 'Datum': 18, 'Symbol': 10, 'TF': 7, 'Richtung': 10,
-        'Entry': 14, 'Exit': 14, 'Ergebnis': 9,
+        'Hebel': 7, 'Entry': 14, 'Exit': 14, 'Ergebnis': 9,
         'Einsatz (USDT)': 16, 'PnL%': 10, 'PnL (USDT)': 14, 'Kapital': 16,
     }
 

@@ -104,6 +104,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     """
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
                                risk_config.get('risk_per_trade_pct', 1.0)))
+    leverage           = int(signal_config.get('leverage', risk_config.get('leverage', 1)))
 
     # --- Signal-Parameter auslesen ---
     entropy_window    = int(signal_config.get('entropy_window',       20))
@@ -193,6 +194,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                     'pnl_usdt':           round(pnl_usdt, 2),
                     'capital_after':      round(capital, 2),
                     'risk_per_trade_pct': risk_per_trade_pct,
+                    'leverage':           leverage,
                 })
                 trades.append(trade)
                 in_trade = False
