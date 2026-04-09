@@ -3,13 +3,41 @@
         "max_open_positions": 10,
         "use_auto_optimizer_results": false,
         "active_strategies": [
-            {"symbol": "ETH/USDT:USDT",  "timeframe": "30m", "active": true},
-            {"symbol": "AVAX/USDT:USDT", "timeframe": "1h",  "active": true},
-            {"symbol": "BNB/USDT:USDT",  "timeframe": "2h",  "active": true},
-            {"symbol": "DOGE/USDT:USDT", "timeframe": "1d",  "active": true},
-            {"symbol": "LTC/USDT:USDT",  "timeframe": "30m", "active": true},
-            {"symbol": "SOL/USDT:USDT",  "timeframe": "30m", "active": true},
-            {"symbol": "ADA/USDT:USDT",  "timeframe": "1d",  "active": true}
+            {
+                "symbol": "ETH/USDT:USDT",
+                "timeframe": "30m",
+                "active": true
+            },
+            {
+                "symbol": "AVAX/USDT:USDT",
+                "timeframe": "1h",
+                "active": true
+            },
+            {
+                "symbol": "BNB/USDT:USDT",
+                "timeframe": "2h",
+                "active": true
+            },
+            {
+                "symbol": "DOGE/USDT:USDT",
+                "timeframe": "1d",
+                "active": true
+            },
+            {
+                "symbol": "LTC/USDT:USDT",
+                "timeframe": "30m",
+                "active": true
+            },
+            {
+                "symbol": "SOL/USDT:USDT",
+                "timeframe": "30m",
+                "active": true
+            },
+            {
+                "symbol": "ADA/USDT:USDT",
+                "timeframe": "1d",
+                "active": true
+            }
         ]
     },
     "optimization_settings": {
@@ -52,7 +80,7 @@
         "entropy_lookback": 10,
         "energy_lookback": 5,
         "min_entropy_drop_pct": 0.05,
-        "min_energy_rise_pct": 0.20,
+        "min_energy_rise_pct": 0.2,
         "atr_period": 14,
         "atr_sl_mult": 1.5,
         "atr_tp_mult": 3.0,
