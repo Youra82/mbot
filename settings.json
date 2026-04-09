@@ -44,7 +44,7 @@
         "enabled": false,
         "schedule": {
             "_info": "day_of_week: 0=Montag, 6=Sonntag | hour: 0-23 (24h Format)",
-            "day_of_week": 6,
+            "day_of_week": 2,
             "hour": 15,
             "minute": 0,
             "interval": {
@@ -56,9 +56,9 @@
         "symbols_to_optimize": "auto",
         "timeframes_to_optimize": "auto",
         "lookback_days": "auto",
-        "start_capital": 1000,
+        "start_capital": 15,
         "cpu_cores": 1,
-        "num_trials": 100,
+        "num_trials": 500,
         "mode": "strict",
         "constraints": {
             "max_drawdown_pct": 30,
