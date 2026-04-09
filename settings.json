@@ -1,23 +1,15 @@
 {
     "live_trading_settings": {
-        "max_open_positions": 1,
+        "max_open_positions": 7,
         "use_auto_optimizer_results": false,
         "active_strategies": [
-            {
-                "symbol": "BTC/USDT:USDT",
-                "timeframe": "15m",
-                "active": true
-            },
-            {
-                "symbol": "ETH/USDT:USDT",
-                "timeframe": "15m",
-                "active": true
-            },
-            {
-                "symbol": "SOL/USDT:USDT",
-                "timeframe": "15m",
-                "active": true
-            }
+            {"symbol": "ETH/USDT:USDT",  "timeframe": "30m", "active": true},
+            {"symbol": "AVAX/USDT:USDT", "timeframe": "1h",  "active": true},
+            {"symbol": "BNB/USDT:USDT",  "timeframe": "2h",  "active": true},
+            {"symbol": "DOGE/USDT:USDT", "timeframe": "1d",  "active": true},
+            {"symbol": "LTC/USDT:USDT",  "timeframe": "30m", "active": true},
+            {"symbol": "SOL/USDT:USDT",  "timeframe": "30m", "active": true},
+            {"symbol": "ADA/USDT:USDT",  "timeframe": "1d",  "active": true}
         ]
     },
     "optimization_settings": {
