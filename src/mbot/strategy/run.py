@@ -30,11 +30,12 @@ from mbot.utils.exchange import Exchange
 from mbot.utils.telegram import send_message
 from mbot.utils.guardian import guardian_decorator
 from mbot.utils.trade_manager import (
-    is_globally_free,
+    is_strategy_free,
     execute_signal_trade,
     check_position_status,
-    read_global_state,
-    clear_global_state,
+    read_position,
+    clear_position,
+    read_active_positions,
 )
 from mbot.strategy.mers_signal import get_mers_signal, check_mers_exit
 
@@ -113,9 +114,9 @@ def run_for_account(account: dict, telegram_config: dict,
 
     if mode == 'check':
         # --- State-basierter Exit (MERS): Entropy steigt oder Acc dreht ---
-        state = read_global_state()
-        if state.get('active_symbol') == symbol:
-            entry_side = state.get('side')
+        pos = read_position(symbol, timeframe)
+        if pos is not None:
+            entry_side = pos.get('side')
             df_check = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
             if not df_check.empty and entry_side:
                 if check_mers_exit(df_check, signal_config, entry_side):
@@ -139,19 +140,17 @@ def run_for_account(account: dict, telegram_config: dict,
                         f"Grund:   Entropy steigt / Beschleunigung dreht\n"
                         f"(MERS state-basierter Exit vor SL/TP)"
                     )
-                    clear_global_state()
+                    clear_position(symbol, timeframe)
                     return
 
         # --- Positions-Check: Ist der Trade noch offen? ---
         check_position_status(exchange, symbol, timeframe, telegram_config, logger)
 
     elif mode == 'signal':
-        # --- Signal-Check: Nur wenn Global State frei ---
-        if not is_globally_free():
-            state = read_global_state()
+        # --- Signal-Check: Nur wenn diese Strategie noch keinen offenen Trade hat ---
+        if not is_strategy_free(symbol, timeframe):
             logger.info(
-                f"Global State belegt von {state.get('active_symbol')} "
-                f"({state.get('active_timeframe')}) - ueberspringe {symbol}."
+                f"Strategie {symbol} ({timeframe}) hat bereits einen offenen Trade - ueberspringe."
             )
             return
 
@@ -176,8 +175,8 @@ def run_for_account(account: dict, telegram_config: dict,
             return
 
         # Nochmal pruefen ob noch frei (race condition minimieren)
-        if not is_globally_free():
-            logger.info(f"Global State gerade belegt, ueberspringe {symbol}.")
+        if not is_strategy_free(symbol, timeframe):
+            logger.info(f"Strategie {symbol} ({timeframe}) wurde parallel belegt, ueberspringe.")
             return
 
         # Trade ausfuehren (SL/TP ATR-basiert aus signal['sl_price'] / signal['tp_price'])

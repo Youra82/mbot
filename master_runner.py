@@ -1,23 +1,23 @@
 # master_runner.py
 """
-mbot Master Runner
+mbot Master Runner (Multi-Position)
 
 Logik:
   1. Startet Auto-Optimizer-Scheduler im Hintergrund (prueft ob Optimierung faellig)
   2. Liest settings.json -> aktive Symbole
      - use_auto_optimizer_results=true  -> Symbole aus Config-Dateien in configs/
      - use_auto_optimizer_results=false -> Symbole aus active_strategies in settings.json
-  3. Liest global_state.json -> ist gerade ein Symbol aktiv?
+  3. Liest active_positions.json -> welche Strategien haben offene Trades?
 
-  FALL A: Ein Symbol ist aktiv (offener Trade)
-    -> Nur fuer dieses Symbol 'run.py --mode check' ausfuehren
+  FALL A: Aktive Positionen vorhanden
+    -> Fuer JEDE aktive Position 'run.py --mode check' ausfuehren
     -> Prueft ob Position noch offen
-    -> Falls geschlossen: Global State wird in run.py geloescht
+    -> Falls geschlossen: Position wird in run.py aus State entfernt
 
-  FALL B: Kein Symbol aktiv (kein offener Trade)
-    -> Fuer jedes Symbol SEQUENZIELL 'run.py --mode signal' ausfuehren
-    -> Sobald ein Symbol den Global State beansprucht hat: Schleife abbrechen
-    -> Andere Symbole werden in dieser Runde nicht mehr geprueft
+  FALL B: Freie Strategien vorhanden (max_open_positions nicht erreicht)
+    -> Fuer jede FREIE Strategie 'run.py --mode signal' ausfuehren
+    -> Mehrere Strategien koennen gleichzeitig Signale finden und traden
+    -> Stoppe wenn max_open_positions erreicht
 
 Wird per Cronjob alle 1-5 Minuten ausgefuehrt (je nach Timeframe der Strategien).
 """
@@ -46,20 +46,22 @@ logging.basicConfig(
     ]
 )
 
-GLOBAL_STATE_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
-RUN_SCRIPT        = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'run.py')
-CONFIGS_DIR       = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
-AUTO_OPT_SCRIPT   = os.path.join(PROJECT_ROOT, 'auto_optimizer_scheduler.py')
+ACTIVE_POSITIONS_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'active_positions.json')
+RUN_SCRIPT            = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'run.py')
+CONFIGS_DIR           = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
+AUTO_OPT_SCRIPT       = os.path.join(PROJECT_ROOT, 'auto_optimizer_scheduler.py')
 
 
-def read_global_state() -> dict:
-    if not os.path.exists(GLOBAL_STATE_PATH):
-        return {'active_symbol': None, 'active_timeframe': None}
+def read_active_positions() -> list:
+    """Liest alle aktiven Positionen aus active_positions.json."""
+    if not os.path.exists(ACTIVE_POSITIONS_PATH):
+        return []
     try:
-        with open(GLOBAL_STATE_PATH, 'r') as f:
-            return json.load(f)
+        with open(ACTIVE_POSITIONS_PATH, 'r') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     except Exception:
-        return {'active_symbol': None, 'active_timeframe': None}
+        return []
 
 
 def load_strategies_from_configs() -> list:
@@ -103,7 +105,7 @@ def run_strategy(python_exe: str, symbol: str, timeframe: str, mode: str, wait: 
 
 def main():
     logging.info("=" * 55)
-    logging.info("mbot Master Runner")
+    logging.info("mbot Master Runner (Multi-Position)")
     logging.info("=" * 55)
 
     # --- Python-Interpreter ---
@@ -142,8 +144,9 @@ def main():
         logging.critical("Keine 'mbot'-Accounts in secret.json gefunden.")
         return
 
-    live_settings         = settings.get('live_trading_settings', {})
-    use_auto_optimizer    = live_settings.get('use_auto_optimizer_results', False)
+    live_settings      = settings.get('live_trading_settings', {})
+    use_auto_optimizer = live_settings.get('use_auto_optimizer_results', False)
+    max_open_positions = int(live_settings.get('max_open_positions', 10))
 
     if use_auto_optimizer:
         logging.info("Modus: Auto-Optimizer. Lese Strategien aus Config-Dateien...")
@@ -161,51 +164,65 @@ def main():
         logging.warning("Keine aktiven Strategien gefunden.")
         return
 
-    logging.info(f"Aktive Strategien: {len(active_strategies)}")
+    logging.info(f"Aktive Strategien: {len(active_strategies)} | Max. Positionen: {max_open_positions}")
 
-    # --- Global State lesen ---
-    state = read_global_state()
-    active_symbol    = state.get('active_symbol')
-    active_timeframe = state.get('active_timeframe')
+    # ==========================================================
+    # FALL A: Position-Check fuer alle offenen Trades
+    # ==========================================================
+    active_positions = read_active_positions()
 
-    # =========================================================
-    # FALL A: Ein Symbol ist gerade aktiv -> Position pruefen
-    # =========================================================
-    if active_symbol:
-        logging.info(f"Aktiver Trade: {active_symbol} ({active_timeframe}) -> Position pruefen")
-        run_strategy(python_exe, active_symbol, active_timeframe, mode='check', wait=True)
+    if active_positions:
+        logging.info(f"Offene Trades: {len(active_positions)} -> Pruefe alle Positionen...")
+        for pos in active_positions:
+            sym = pos.get('symbol')
+            tf  = pos.get('timeframe')
+            if not sym or not tf:
+                continue
+            logging.info(f"  Position-Check: {sym} ({tf})")
+            run_strategy(python_exe, sym, tf, mode='check', wait=True)
+    else:
+        logging.info("Keine offenen Trades.")
 
-        state_after = read_global_state()
-        if state_after.get('active_symbol') is None:
-            logging.info(f"Trade fuer {active_symbol} wurde geschlossen. Bereit fuer neues Signal.")
-        else:
-            logging.info(f"Trade fuer {active_symbol} ist noch offen.")
+    # ==========================================================
+    # FALL B: Signal-Check fuer freie Strategien
+    # ==========================================================
+    # Aktuellen State nach den Checks neu einlesen
+    active_positions = read_active_positions()
+    active_keys      = {(p['symbol'], p['timeframe']) for p in active_positions}
+    num_open         = len(active_keys)
 
-        logging.info("Master Runner beendet (Position-Check-Modus).")
+    if num_open >= max_open_positions:
+        logging.info(f"Max. Positionen ({max_open_positions}) belegt. Kein Signal-Check.")
+        logging.info("Master Runner beendet.")
         return
 
-    # =========================================================
-    # FALL B: Kein aktiver Trade -> Alle Symbole auf Signal pruefen
-    # =========================================================
-    logging.info("Kein aktiver Trade. Pruefe alle Symbole auf Signal...")
+    logging.info(
+        f"Offene Trades: {num_open}/{max_open_positions}. "
+        f"Pruefe Signale fuer freie Strategien..."
+    )
 
     for strategy in active_strategies:
-        symbol    = strategy.get('symbol')
-        timeframe = strategy.get('timeframe')
+        sym = strategy.get('symbol')
+        tf  = strategy.get('timeframe')
 
-        if not symbol or not timeframe:
+        if not sym or not tf:
             logging.warning(f"Unvollstaendige Strategie: {strategy}")
             continue
 
-        logging.info(f"--- Signal-Check: {symbol} ({timeframe}) ---")
-        run_strategy(python_exe, symbol, timeframe, mode='signal', wait=True)
+        if (sym, tf) in active_keys:
+            logging.info(f"  {sym} ({tf}): bereits in Trade, ueberspringe.")
+            continue
 
-        state_after = read_global_state()
-        if state_after.get('active_symbol') is not None:
-            logging.info(
-                f"Signal gefunden! {state_after['active_symbol']} ({state_after['active_timeframe']}) "
-                f"ist jetzt aktiv. Breche weitere Pruefungen ab."
-            )
+        logging.info(f"  Signal-Check: {sym} ({tf})")
+        run_strategy(python_exe, sym, tf, mode='signal', wait=True)
+
+        # State neu einlesen um aktuellen Stand zu kennen
+        active_positions = read_active_positions()
+        active_keys      = {(p['symbol'], p['timeframe']) for p in active_positions}
+        num_open         = len(active_keys)
+
+        if num_open >= max_open_positions:
+            logging.info(f"Max. Positionen ({max_open_positions}) erreicht. Stoppe Signal-Suche.")
             break
 
         time.sleep(1)

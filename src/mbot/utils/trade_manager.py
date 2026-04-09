@@ -1,12 +1,13 @@
 # src/mbot/utils/trade_manager.py
 """
-Trade Manager fuer mbot.
+Trade Manager fuer mbot (Multi-Position).
 
 - Entry mit risiko-basierter Positionsgroesse (wie dnabot)
 - Positionsgroesse = (Kapital * risk_per_trade_pct%) / SL-Abstand (Preis)
-- SL = sl_account_pct / leverage Prozent Preisbewegung  (z.B. 2% / 5 = 0.4% Preis)
-- TP = tp_price_pct Prozent Preisbewegung               (z.B. 1.0% Preis)
-- Global State: nur EIN Symbol darf gleichzeitig traden
+- SL = sl_account_pct / leverage Prozent Preisbewegung
+- TP = tp_price_pct Prozent Preisbewegung
+- Multi-Position State: mehrere Symbole koennen gleichzeitig traden
+  (max_open_positions aus settings.json)
 """
 
 import os
@@ -22,78 +23,114 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.telegram import send_message
 
-GLOBAL_STATE_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
-MIN_NOTIONAL_USDT = 5.0
+ACTIVE_POSITIONS_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'active_positions.json')
+# Legacy-Pfad fuer Migration
+_LEGACY_STATE_PATH    = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
+MIN_NOTIONAL_USDT     = 5.0
 
 
 # ============================================================
-# Global State Management
+# Multi-Position State Management
 # ============================================================
 
-def read_global_state() -> dict:
-    """Liest den globalen Trade-Status."""
-    if not os.path.exists(GLOBAL_STATE_PATH):
-        return _empty_state()
+def read_active_positions() -> list:
+    """
+    Liest alle aktiven Positionen.
+    Beim ersten Aufruf wird ggf. die alte global_state.json migriert.
+    """
+    if not os.path.exists(ACTIVE_POSITIONS_PATH):
+        _migrate_legacy_state()
+    if not os.path.exists(ACTIVE_POSITIONS_PATH):
+        return []
     try:
-        with open(GLOBAL_STATE_PATH, 'r') as f:
-            return json.load(f)
+        with open(ACTIVE_POSITIONS_PATH, 'r') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
-        return _empty_state()
+        return []
 
 
-def write_global_state(state: dict):
-    """Schreibt den globalen Trade-Status."""
-    os.makedirs(os.path.dirname(GLOBAL_STATE_PATH), exist_ok=True)
-    with open(GLOBAL_STATE_PATH, 'w') as f:
-        json.dump(state, f, indent=2)
+def write_active_positions(positions: list):
+    """Schreibt alle aktiven Positionen."""
+    os.makedirs(os.path.dirname(ACTIVE_POSITIONS_PATH), exist_ok=True)
+    with open(ACTIVE_POSITIONS_PATH, 'w') as f:
+        json.dump(positions, f, indent=2)
 
 
-def clear_global_state():
-    """Loescht den aktiven Trade-Status (nach TP/SL)."""
-    write_global_state(_empty_state())
-    logging.getLogger(__name__).info("Global State geleert - bereit fuer neuen Trade.")
+def read_position(symbol: str, timeframe: str) -> dict | None:
+    """Gibt die aktive Position fuer symbol+timeframe zurueck, oder None."""
+    for pos in read_active_positions():
+        if pos.get('symbol') == symbol and pos.get('timeframe') == timeframe:
+            return pos
+    return None
 
 
-def _empty_state() -> dict:
-    return {
-        'active_symbol':    None,
-        'active_timeframe': None,
-        'active_since':     None,
-        'entry_price':      None,
-        'side':             None,
-        'sl_price':         None,
-        'tp_price':         None,
-        'contracts':        None,
-    }
+def is_strategy_free(symbol: str, timeframe: str) -> bool:
+    """True wenn diese Strategie (Symbol+TF) keinen offenen Trade hat."""
+    return read_position(symbol, timeframe) is None
 
 
-def is_globally_free() -> bool:
-    """True wenn kein Symbol gerade tradet."""
-    state = read_global_state()
-    return state.get('active_symbol') is None
-
-
-def claim_global_state(symbol: str, timeframe: str, side: str,
-                        entry_price: float, sl_price: float,
-                        tp_price: float, contracts: float) -> bool:
+def claim_position(symbol: str, timeframe: str, side: str,
+                   entry_price: float, sl_price: float,
+                   tp_price: float, contracts: float) -> bool:
     """
-    Versucht, den Global State fuer dieses Symbol zu beanspruchen.
-    Returns True wenn erfolgreich (niemand sonst hat ihn), False wenn schon belegt.
+    Fuegt eine neue aktive Position hinzu.
+    Returns False wenn diese Strategie bereits aktiv ist.
     """
-    state = read_global_state()
-    if state.get('active_symbol') is not None:
-        return False
-    write_global_state({
-        'active_symbol':    symbol,
-        'active_timeframe': timeframe,
-        'active_since':     datetime.now(timezone.utc).isoformat(),
-        'entry_price':      entry_price,
-        'side':             side,
-        'sl_price':         sl_price,
-        'tp_price':         tp_price,
-        'contracts':        contracts,
+    positions = read_active_positions()
+    for pos in positions:
+        if pos.get('symbol') == symbol and pos.get('timeframe') == timeframe:
+            return False
+    positions.append({
+        'symbol':       symbol,
+        'timeframe':    timeframe,
+        'side':         side,
+        'entry_price':  entry_price,
+        'sl_price':     sl_price,
+        'tp_price':     tp_price,
+        'contracts':    contracts,
+        'active_since': datetime.now(timezone.utc).isoformat(),
     })
+    write_active_positions(positions)
     return True
+
+
+def clear_position(symbol: str, timeframe: str):
+    """Entfernt eine Position nach Trade-Abschluss."""
+    positions = read_active_positions()
+    positions = [p for p in positions
+                 if not (p.get('symbol') == symbol and p.get('timeframe') == timeframe)]
+    write_active_positions(positions)
+    logging.getLogger(__name__).info(f"Position {symbol} ({timeframe}) entfernt.")
+
+
+def _migrate_legacy_state():
+    """Einmalige Migration von global_state.json -> active_positions.json."""
+    if not os.path.exists(_LEGACY_STATE_PATH):
+        return
+    try:
+        with open(_LEGACY_STATE_PATH, 'r') as f:
+            old = json.load(f)
+        sym = old.get('active_symbol')
+        tf  = old.get('active_timeframe')
+        if sym and tf:
+            pos = {
+                'symbol':       sym,
+                'timeframe':    tf,
+                'side':         old.get('side'),
+                'entry_price':  old.get('entry_price'),
+                'sl_price':     old.get('sl_price'),
+                'tp_price':     old.get('tp_price'),
+                'contracts':    old.get('contracts'),
+                'active_since': old.get('active_since'),
+            }
+            write_active_positions([pos])
+            logging.getLogger(__name__).info(
+                f"Migration: global_state.json -> active_positions.json ({sym} {tf})"
+            )
+        os.remove(_LEGACY_STATE_PATH)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Migration fehlgeschlagen: {e}")
 
 
 # ============================================================
@@ -151,7 +188,7 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
                           telegram_config: dict, logger: logging.Logger) -> bool:
     """
     Wird aufgerufen wenn ein Signal erkannt wurde.
-    Prueft Global State, platziert Entry + SL + TP.
+    Prueft ob Strategie frei ist, platziert Entry + SL + TP.
 
     Returns True wenn Trade erfolgreich platziert.
     """
@@ -226,7 +263,6 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
 
     # --- SL / TP mit tatsaechlichem Fill-Preis berechnen ---
     if atr and atr > 0 and atr_sl_mult and atr_tp_mult:
-        # ATR-basiert: Neuberechnung mit tatsaechlichem Fill-Preis
         if side == 'long':
             sl_price = entry_price - atr_sl_mult * atr
             tp_price = entry_price + atr_tp_mult * atr
@@ -235,7 +271,6 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
             tp_price = entry_price - atr_tp_mult * atr
         logger.info(f"SL/TP ATR-basiert: ATR={atr:.4f} | SL-Mult={atr_sl_mult} | TP-Mult={atr_tp_mult}")
     else:
-        # Fallback: prozentbasiert aus risk_config
         sl_price, tp_price = calculate_sl_tp_prices(
             entry_price, side, leverage, sl_account_pct, tp_price_pct
         )
@@ -246,7 +281,6 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     tp_dist_pct = abs(tp_price - entry_price) / entry_price * 100
     logger.info(f"SL-Abstand: {sl_dist_pct:.3f}% | TP-Abstand: {tp_dist_pct:.3f}% | R:R=1:{tp_dist_pct/sl_dist_pct:.1f}")
 
-    # Kurz warten, damit Entry verarbeitet ist
     time.sleep(1.0)
 
     # --- SL platzieren (reduceOnly Trigger) ---
@@ -269,12 +303,11 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     except Exception as e:
         logger.error(f"TP konnte nicht platziert werden: {e}")
 
-    # --- Global State beanspruchen ---
-    claimed = claim_global_state(symbol, timeframe, side, entry_price,
-                                  sl_price, tp_price, filled)
+    # --- Position in State eintragen ---
+    claimed = claim_position(symbol, timeframe, side, entry_price,
+                              sl_price, tp_price, filled)
     if not claimed:
-        # Ein anderer Prozess hat zwischenzeitlich den State belegt
-        logger.warning("Global State wurde von anderem Symbol belegt. Schliesse Position.")
+        logger.warning("Strategie wurde parallel von anderem Prozess belegt. Schliesse Position.")
         try:
             exchange.cancel_all_orders_for_symbol(symbol)
             exchange.close_position(symbol)
@@ -317,22 +350,21 @@ def check_position_status(exchange, symbol: str, timeframe: str,
                            telegram_config: dict, logger: logging.Logger):
     """
     Prueft ob die aktive Position noch offen ist.
-    Falls nicht mehr offen: Global State loeschen, Telegram-Nachricht senden.
+    Falls nicht mehr offen: Position aus State entfernen, Telegram-Nachricht senden.
     """
-    state = read_global_state()
+    pos = read_position(symbol, timeframe)
 
-    if state.get('active_symbol') != symbol:
-        logger.debug(f"check_position_status: {symbol} ist nicht das aktive Symbol, ueberspringe.")
+    if pos is None:
+        logger.debug(f"check_position_status: Keine aktive Position fuer {symbol} ({timeframe}).")
         return
 
     positions = exchange.fetch_open_positions(symbol)
 
     if positions:
-        # Position noch offen
-        pos       = positions[0]
-        pos_side  = pos.get('side', '?')
-        unr_pnl   = pos.get('unrealizedPnl', 0.0)
-        entry_p   = state.get('entry_price', '?')
+        p        = positions[0]
+        pos_side = p.get('side', '?')
+        unr_pnl  = p.get('unrealizedPnl', 0.0)
+        entry_p  = pos.get('entry_price', '?')
         logger.info(
             f"Position fuer {symbol} noch offen: {pos_side.upper()} "
             f"| Entry: {entry_p} | Unrealized PnL: {unr_pnl:.2f} USDT"
@@ -342,18 +374,17 @@ def check_position_status(exchange, symbol: str, timeframe: str,
     # Position nicht mehr offen -> TP oder SL wurde getroffen
     logger.info(f"Position fuer {symbol} wurde geschlossen (TP oder SL getroffen).")
 
-    # Alle verbleibenden Trigger-Orders stornieren (z.B. SL falls TP getroffen)
     try:
         exchange.cancel_all_orders_for_symbol(symbol)
         logger.info(f"Verbleibende Orders fuer {symbol} storniert.")
     except Exception as e:
         logger.warning(f"Fehler beim Stornieren verbleibender Orders: {e}")
 
-    entry_p  = state.get('entry_price', '?')
-    sl_p     = state.get('sl_price', '?')
-    tp_p     = state.get('tp_price', '?')
-    side_str = state.get('side', '?')
-    since    = state.get('active_since', '?')
+    entry_p  = pos.get('entry_price', '?')
+    sl_p     = pos.get('sl_price', '?')
+    tp_p     = pos.get('tp_price', '?')
+    side_str = pos.get('side', '?')
+    since    = pos.get('active_since', '?')
 
     direction_emoji = "🟢" if side_str == 'long' else "🔴"
     msg = (
@@ -369,5 +400,4 @@ def check_position_status(exchange, symbol: str, timeframe: str,
     )
     send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
 
-    # Global State loeschen -> alle Symbole koennen wieder signalisieren
-    clear_global_state()
+    clear_position(symbol, timeframe)
