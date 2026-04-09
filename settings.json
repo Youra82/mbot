@@ -1,6 +1,6 @@
 {
     "live_trading_settings": {
-        "max_open_positions": 7,
+        "max_open_positions": 10,
         "use_auto_optimizer_results": false,
         "active_strategies": [
             {"symbol": "ETH/USDT:USDT",  "timeframe": "30m", "active": true},
