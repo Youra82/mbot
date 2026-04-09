@@ -99,6 +99,8 @@ def run_for_account(account: dict, telegram_config: dict,
         risk_config = dict(risk_config)
         if 'risk_per_trade_pct' in signal_config:
             risk_config['risk_per_trade_pct'] = signal_config['risk_per_trade_pct']
+        if 'leverage' in signal_config:
+            risk_config['leverage'] = signal_config['leverage']
         logger.info(f"Config geladen: config_{safe_name}_mers.json "
                     f"(PnL: {loaded_cfg.get('_meta', {}).get('pnl_pct', '?')}% | "
                     f"Hebel: {risk_config.get('leverage', 5)}x | "
