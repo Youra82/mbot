@@ -45,8 +45,9 @@ def _merge_trades_chronological(results_dict: dict) -> list:
     """
     all_trades = []
     for fn, result in results_dict.items():
+        tf = result.get('timeframe', '')
         for t in result.get('trades', []):
-            all_trades.append({**t, '_strategy_key': fn})
+            all_trades.append({**t, '_strategy_key': fn, '_timeframe': tf})
     all_trades.sort(key=lambda t: t.get('entry_time', ''))
     return all_trades
 

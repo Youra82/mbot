@@ -34,6 +34,141 @@ logging.basicConfig(level=logging.WARNING)
 
 
 # ============================================================
+# Excel Export
+# ============================================================
+
+def _generate_trades_excel(portfolio: dict, start_capital: float):
+    """Erstellt mbot_trades.xlsx mit allen Portfolio-Trades."""
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        print(f'  {YELLOW}openpyxl nicht installiert — Excel uebersprungen. (pip install openpyxl){NC}')
+        return
+
+    trades = portfolio.get('trades', [])
+    if not trades:
+        print(f'  {YELLOW}Keine Trades — Excel uebersprungen.{NC}')
+        return
+
+    rows = []
+    for i, t in enumerate(trades):
+        symbol    = t.get('symbol', '?')
+        coin      = symbol.split('/')[0] if '/' in symbol else symbol
+        tf        = t.get('_timeframe', '?')
+        side      = t.get('side', '?').upper()
+        entry_p   = round(float(t.get('entry_price', 0)), 6)
+        exit_p    = round(float(t.get('exit_price',  0)), 6)
+        result    = t.get('result', '')
+        ergebnis  = 'TP' if result == 'win' else 'SL'
+        pnl_pct   = round(float(t.get('pnl_pct', 0)), 2)
+        pnl_usdt  = round(float(t.get('portfolio_pnl_usdt', 0)), 4)
+        kapital   = round(float(t.get('portfolio_capital_after', 0)), 4)
+        datum     = str(t.get('entry_time', ''))[:16].replace('T', ' ')
+
+        rows.append({
+            'Nr':           i + 1,
+            'Datum':        datum,
+            'Symbol':       coin,
+            'TF':           tf,
+            'Richtung':     side,
+            'Entry':        entry_p,
+            'Exit':         exit_p,
+            'Ergebnis':     ergebnis,
+            'PnL%':         pnl_pct,
+            'PnL (USDT)':   pnl_usdt,
+            'Kapital':      kapital,
+        })
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Trades'
+
+    header_fill = PatternFill('solid', fgColor='1E3A5F')
+    win_fill    = PatternFill('solid', fgColor='D6F4DC')
+    loss_fill   = PatternFill('solid', fgColor='FAD7D7')
+    alt_fill    = PatternFill('solid', fgColor='F2F2F2')
+    thin_border = Border(
+        left=Side(style='thin', color='CCCCCC'),  right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin',  color='CCCCCC'),  bottom=Side(style='thin', color='CCCCCC'),
+    )
+    col_widths = {
+        'Nr': 5, 'Datum': 18, 'Symbol': 10, 'TF': 7, 'Richtung': 10,
+        'Entry': 14, 'Exit': 14, 'Ergebnis': 9,
+        'PnL%': 10, 'PnL (USDT)': 14, 'Kapital': 16,
+    }
+
+    headers = list(rows[0].keys())
+    for col, h in enumerate(headers, 1):
+        cell           = ws.cell(row=1, column=col, value=h)
+        cell.fill      = header_fill
+        cell.font      = Font(bold=True, color='FFFFFF', size=11)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border    = thin_border
+        ws.column_dimensions[get_column_letter(col)].width = col_widths.get(h, 14)
+    ws.row_dimensions[1].height = 22
+
+    for r_idx, row in enumerate(rows, 2):
+        fill = win_fill if row['Ergebnis'] == 'TP' else (loss_fill if r_idx % 2 == 0 else alt_fill)
+        for col, key in enumerate(headers, 1):
+            cell           = ws.cell(row=r_idx, column=col, value=row[key])
+            cell.fill      = fill
+            cell.border    = thin_border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            if key in ('Entry', 'Exit', 'PnL (USDT)', 'Kapital'):
+                cell.number_format = '#,##0.0000'
+            elif key == 'PnL%':
+                cell.number_format = '+0.00;-0.00'
+        ws.row_dimensions[r_idx].height = 18
+
+    # Zusammenfassung
+    total     = len(rows)
+    wins      = sum(1 for r in rows if r['Ergebnis'] == 'TP')
+    pnl_total = rows[-1]['Kapital'] - start_capital if rows else 0.0
+    pnl_pct_s = pnl_total / start_capital * 100 if start_capital else 0.0
+    sr        = total + 3
+    ws.cell(row=sr, column=1, value='Zusammenfassung').font = Font(bold=True, size=11)
+    for label, value in [
+        ('Trades gesamt', total),
+        ('Win-Rate',      f'{wins / total * 100:.1f}%' if total else '—'),
+        ('PnL',           f'{pnl_pct_s:+.1f}%'),
+        ('Endkapital',    f'{rows[-1]["Kapital"]:.4f} USDT' if rows else '—'),
+    ]:
+        ws.cell(row=sr, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=sr, column=2, value=value)
+        sr += 1
+
+    out_dir  = os.path.join(PROJECT_ROOT, 'artifacts', 'charts')
+    os.makedirs(out_dir, exist_ok=True)
+    out_file = os.path.join(out_dir, 'mbot_trades.xlsx')
+    wb.save(out_file)
+    print(f'  {GREEN}Excel gespeichert: mbot_trades.xlsx{NC}')
+
+    # Via Telegram senden
+    try:
+        with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
+            secrets = json.load(f)
+        tg        = secrets.get('telegram', {})
+        bot_token = tg.get('bot_token', '')
+        chat_id   = tg.get('chat_id', '')
+        if bot_token and chat_id:
+            import requests
+            caption = (f'mbot Trades — {total} Trades | '
+                       f'WR: {wins / total * 100:.1f}% | PnL: {pnl_pct_s:+.1f}%' if total else 'mbot Trades')
+            with open(out_file, 'rb') as doc:
+                requests.post(
+                    f'https://api.telegram.org/bot{bot_token}/sendDocument',
+                    data={'chat_id': chat_id, 'caption': caption},
+                    files={'document': doc},
+                    timeout=30,
+                )
+            print(f'  {GREEN}Via Telegram gesendet.{NC}')
+    except Exception:
+        pass
+
+
+# ============================================================
 # Hilfsfunktionen
 # ============================================================
 
@@ -409,6 +544,9 @@ def mode_auto_portfolio(target_max_dd):
             if bot_token and chat_id:
                 _send_charts_via_telegram([path], bot_token, chat_id)
                 print(f'{GREEN}  ✓ Via Telegram gesendet.{NC}')
+
+        # Excel Export
+        _generate_trades_excel(portfolio_with_trades, start_capital)
 
 
 def _print_portfolio_result(portfolio, label):
