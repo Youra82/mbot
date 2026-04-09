@@ -339,6 +339,12 @@ def mode_single(target_max_dd):
         )
     print()
 
+    raw = input('  Excel exportieren (alle Trades)? (j/n): ').strip().lower()
+    if raw in ('j', 'y', 'ja', 'yes'):
+        from mbot.analysis.portfolio_simulator import run_portfolio_simulation
+        portfolio = run_portfolio_simulation(results, start_capital)
+        _generate_trades_excel(portfolio, start_capital)
+
 
 # ============================================================
 # Modus 2: Manuelle Portfolio-Simulation
@@ -395,6 +401,10 @@ def mode_manual_portfolio(target_max_dd):
     from mbot.analysis.portfolio_simulator import run_portfolio_simulation
     portfolio = run_portfolio_simulation(results, start_capital)
     _print_portfolio_result(portfolio, 'Manuelles Portfolio')
+
+    raw = input('  Excel exportieren? (j/n): ').strip().lower()
+    if raw in ('j', 'y', 'ja', 'yes'):
+        _generate_trades_excel(portfolio, start_capital)
 
 
 # ============================================================
