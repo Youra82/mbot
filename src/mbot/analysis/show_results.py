@@ -280,8 +280,9 @@ def mode_auto_portfolio(target_max_dd):
     print(f'  mbot Automatische Portfolio-Optimierung')
     print(f'  Ziel: Maximaler Profit bei maximal {target_max_dd:.1f}% Drawdown.'
           f' | {start_date} → {end_date}')
-    print(f'  Modell: Gemeinsamer Kapital-Pool — alle Trades kompoundieren zusammen')
-    print(f'  Constraint: max. 1 Timeframe pro Coin (bester TF wird automatisch gewaehlt)')
+    print(f'  Modell: Gemeinsamer Kapital-Pool — pro Strategie 1 Trade gleichzeitig moeglich')
+    print(f'  Score:  Calmar Ratio (PnL / MaxDD) — balanciert Rendite und Risiko')
+    print(f'  Constraint: max. 1 Timeframe pro Coin (bester Calmar wird automatisch gewaehlt)')
     print(f'{sep}\n')
 
     print(f'  Lade Backtest-Ergebnisse ...', end='', flush=True)
@@ -344,10 +345,12 @@ def mode_auto_portfolio(target_max_dd):
         print(f'  {sym:<25} {tf:<6} {tr:>7}  {w:>5.1f}% {pc}{p:>+9.1f}%{NC}  {dc}{dd:>5.1f}%{NC}')
 
     print(f'\n  {"─"*68}')
-    print(f'  Portfolio gesamt (gemeinsamer Kapital-Pool, alle Trades kompoundiert):')
+    calmar = pnl_pct / max_dd if max_dd > 0 else pnl_pct
+    print(f'  Portfolio gesamt (gemeinsamer Kapital-Pool, pro Strategie 1 gleichzeitiger Trade):')
     print(f'  Trades total:  {trades}')
     print(f'  Win-Rate:      {wr:.1f}%')
     print(f'  PnL:           {pnl_c}{pnl_pct:+.1f}%{NC}')
+    print(f'  Calmar Ratio:  {calmar:.2f}')
     print(f'  Final Equity:  {end_cap:.2f} USDT')
     print(f'  Max Drawdown:  {dd_c}{max_dd:.1f}%{NC}')
     print(f'{"="*72}\n')
