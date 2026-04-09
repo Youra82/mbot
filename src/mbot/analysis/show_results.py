@@ -62,23 +62,27 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
         exit_p    = round(float(t.get('exit_price',  0)), 6)
         result    = t.get('result', '')
         ergebnis  = 'TP' if result == 'win' else 'SL'
-        pnl_pct   = round(float(t.get('pnl_pct', 0)), 2)
-        pnl_usdt  = round(float(t.get('portfolio_pnl_usdt', 0)), 4)
-        kapital   = round(float(t.get('portfolio_capital_after', 0)), 4)
-        datum     = str(t.get('entry_time', ''))[:16].replace('T', ' ')
+        pnl_pct          = round(float(t.get('pnl_pct', 0)), 2)
+        pnl_usdt         = round(float(t.get('portfolio_pnl_usdt', 0)), 4)
+        kapital          = round(float(t.get('portfolio_capital_after', 0)), 4)
+        risk_per_trade   = float(t.get('risk_per_trade_pct', 0))
+        kapital_vor      = kapital - pnl_usdt
+        einsatz          = round(kapital_vor * risk_per_trade / 100.0, 4)
+        datum            = str(t.get('entry_time', ''))[:16].replace('T', ' ')
 
         rows.append({
-            'Nr':           i + 1,
-            'Datum':        datum,
-            'Symbol':       coin,
-            'TF':           tf,
-            'Richtung':     side,
-            'Entry':        entry_p,
-            'Exit':         exit_p,
-            'Ergebnis':     ergebnis,
-            'PnL%':         pnl_pct,
-            'PnL (USDT)':   pnl_usdt,
-            'Kapital':      kapital,
+            'Nr':              i + 1,
+            'Datum':           datum,
+            'Symbol':          coin,
+            'TF':              tf,
+            'Richtung':        side,
+            'Entry':           entry_p,
+            'Exit':            exit_p,
+            'Ergebnis':        ergebnis,
+            'Einsatz (USDT)':  einsatz,
+            'PnL%':            pnl_pct,
+            'PnL (USDT)':      pnl_usdt,
+            'Kapital':         kapital,
         })
 
     wb  = openpyxl.Workbook()
@@ -96,7 +100,7 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
     col_widths = {
         'Nr': 5, 'Datum': 18, 'Symbol': 10, 'TF': 7, 'Richtung': 10,
         'Entry': 14, 'Exit': 14, 'Ergebnis': 9,
-        'PnL%': 10, 'PnL (USDT)': 14, 'Kapital': 16,
+        'Einsatz (USDT)': 16, 'PnL%': 10, 'PnL (USDT)': 14, 'Kapital': 16,
     }
 
     headers = list(rows[0].keys())
@@ -116,7 +120,7 @@ def _generate_trades_excel(portfolio: dict, start_capital: float):
             cell.fill      = fill
             cell.border    = thin_border
             cell.alignment = Alignment(horizontal='center', vertical='center')
-            if key in ('Entry', 'Exit', 'PnL (USDT)', 'Kapital'):
+            if key in ('Entry', 'Exit', 'PnL (USDT)', 'Kapital', 'Einsatz (USDT)'):
                 cell.number_format = '#,##0.0000'
             elif key == 'PnL%':
                 cell.number_format = '+0.00;-0.00'
