@@ -408,9 +408,31 @@ def mode_manual_portfolio(target_max_dd):
     portfolio = run_portfolio_simulation(results, start_capital)
     _print_portfolio_result(portfolio, 'Manuelles Portfolio')
 
-    raw = input('  Excel exportieren? (j/n): ').strip().lower()
+    raw = input('\n  Portfolio-Chart erstellen & via Telegram senden? (j/n): ').strip().lower()
     if raw in ('j', 'y', 'ja', 'yes'):
+        from mbot.analysis.interactive_chart import generate_portfolio_chart, _send_charts_via_telegram
+        with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
+            secrets = json.load(f)
+        tg        = secrets.get('telegram', {})
+        bot_token = tg.get('bot_token', '')
+        chat_id   = tg.get('chat_id', '')
+
+        print(f'  Erstelle Portfolio-Chart...')
+        path = generate_portfolio_chart(
+            results, portfolio,
+            start_capital, start_date, end_date,
+        )
+        if path:
+            print(f'{GREEN}  ✓ Portfolio-Chart erstellt: {path}{NC}')
+            if bot_token and chat_id:
+                _send_charts_via_telegram([path], bot_token, chat_id)
+                print(f'{GREEN}  ✓ Via Telegram gesendet.{NC}')
+
         _generate_trades_excel(portfolio, start_capital)
+    else:
+        raw = input('  Excel exportieren? (j/n): ').strip().lower()
+        if raw in ('j', 'y', 'ja', 'yes'):
+            _generate_trades_excel(portfolio, start_capital)
 
 
 # ============================================================
