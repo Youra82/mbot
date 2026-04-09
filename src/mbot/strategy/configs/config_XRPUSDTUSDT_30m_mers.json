@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "XRP/USDT:USDT",
+        "timeframe": "30m"
+    },
+    "signal": {
+        "risk_per_trade_pct": 2.0,
+        "leverage": 14,
+        "entropy_window": 37,
+        "entropy_lookback": 13,
+        "energy_lookback": 25,
+        "min_entropy_drop_pct": 0.02,
+        "min_energy_rise_pct": 1.4500000000000002,
+        "atr_period": 20,
+        "atr_sl_mult": 1.0,
+        "atr_tp_mult": 4.25,
+        "use_regime_filter": 0,
+        "regime_window": 32,
+        "allow_range_trade": 0,
+        "use_multitf_filter": 1,
+        "meso_tf_mult": 8,
+        "macro_tf_mult": 11
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 557.73,
+        "win_rate": 25.4,
+        "total_trades": 335,
+        "max_drawdown": 21.4,
+        "start_capital": 15.0,
+        "end_capital": 98.66,
+        "optimized_at": "2026-04-09T07:41:21",
+        "mode": "best_profit",
+        "start_date": "2025-04-09",
+        "end_date": "2026-04-09"
+    }
+}

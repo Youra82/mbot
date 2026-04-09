@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "ARB/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "signal": {
+        "risk_per_trade_pct": 3.0,
+        "leverage": 14,
+        "entropy_window": 45,
+        "entropy_lookback": 22,
+        "energy_lookback": 12,
+        "min_entropy_drop_pct": 0.06999999999999999,
+        "min_energy_rise_pct": 1.5,
+        "atr_period": 9,
+        "atr_sl_mult": 0.75,
+        "atr_tp_mult": 2.0,
+        "use_regime_filter": 0,
+        "regime_window": 13,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 7,
+        "macro_tf_mult": 23
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 126.91,
+        "win_rate": 57.7,
+        "total_trades": 26,
+        "max_drawdown": 5.96,
+        "start_capital": 15.0,
+        "end_capital": 34.04,
+        "optimized_at": "2026-04-09T00:13:41",
+        "mode": "best_profit",
+        "start_date": "2023-04-10",
+        "end_date": "2026-04-09"
+    }
+}

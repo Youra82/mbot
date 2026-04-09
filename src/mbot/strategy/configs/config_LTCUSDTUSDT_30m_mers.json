@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "LTC/USDT:USDT",
+        "timeframe": "30m"
+    },
+    "signal": {
+        "risk_per_trade_pct": 2.75,
+        "leverage": 8,
+        "entropy_window": 32,
+        "entropy_lookback": 17,
+        "energy_lookback": 10,
+        "min_entropy_drop_pct": 0.15000000000000002,
+        "min_energy_rise_pct": 1.5,
+        "atr_period": 9,
+        "atr_sl_mult": 1.25,
+        "atr_tp_mult": 5.5,
+        "use_regime_filter": 1,
+        "regime_window": 39,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 5,
+        "macro_tf_mult": 30
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 385.91,
+        "win_rate": 32.6,
+        "total_trades": 86,
+        "max_drawdown": 24.34,
+        "start_capital": 15.0,
+        "end_capital": 72.89,
+        "optimized_at": "2026-04-09T05:09:25",
+        "mode": "best_profit",
+        "start_date": "2025-04-09",
+        "end_date": "2026-04-09"
+    }
+}

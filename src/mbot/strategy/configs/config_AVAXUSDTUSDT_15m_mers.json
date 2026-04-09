@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "AVAX/USDT:USDT",
+        "timeframe": "15m"
+    },
+    "signal": {
+        "risk_per_trade_pct": 3.0,
+        "leverage": 5,
+        "entropy_window": 10,
+        "entropy_lookback": 5,
+        "energy_lookback": 4,
+        "min_entropy_drop_pct": 0.03,
+        "min_energy_rise_pct": 1.05,
+        "atr_period": 15,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 5.75,
+        "use_regime_filter": 0,
+        "regime_window": 37,
+        "allow_range_trade": 0,
+        "use_multitf_filter": 1,
+        "meso_tf_mult": 8,
+        "macro_tf_mult": 29
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 959.75,
+        "win_rate": 21.0,
+        "total_trades": 62,
+        "max_drawdown": 23.98,
+        "start_capital": 15.0,
+        "end_capital": 158.96,
+        "optimized_at": "2026-04-09T00:05:39",
+        "mode": "best_profit",
+        "start_date": "2026-01-08",
+        "end_date": "2026-04-08"
+    }
+}

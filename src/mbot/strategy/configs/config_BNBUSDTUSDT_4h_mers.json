@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "BNB/USDT:USDT",
+        "timeframe": "4h"
+    },
+    "signal": {
+        "risk_per_trade_pct": 1.0,
+        "leverage": 10,
+        "entropy_window": 60,
+        "entropy_lookback": 25,
+        "energy_lookback": 4,
+        "min_entropy_drop_pct": 0.01,
+        "min_energy_rise_pct": 1.4500000000000002,
+        "atr_period": 15,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 4.25,
+        "use_regime_filter": 0,
+        "regime_window": 13,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 0,
+        "meso_tf_mult": 2,
+        "macro_tf_mult": 14
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 288.97,
+        "win_rate": 16.5,
+        "total_trades": 266,
+        "max_drawdown": 18.2,
+        "start_capital": 15.0,
+        "end_capital": 58.35,
+        "optimized_at": "2026-04-08T18:15:46",
+        "mode": "best_profit",
+        "start_date": "2024-04-08",
+        "end_date": "2026-04-08"
+    }
+}

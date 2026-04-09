@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "SOL/USDT:USDT",
+        "timeframe": "15m"
+    },
+    "signal": {
+        "risk_per_trade_pct": 3.0,
+        "leverage": 17,
+        "entropy_window": 37,
+        "entropy_lookback": 9,
+        "energy_lookback": 17,
+        "min_entropy_drop_pct": 0.060000000000000005,
+        "min_energy_rise_pct": 0.45,
+        "atr_period": 8,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 5.75,
+        "use_regime_filter": 0,
+        "regime_window": 37,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 1,
+        "meso_tf_mult": 6,
+        "macro_tf_mult": 27
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 288.76,
+        "win_rate": 17.3,
+        "total_trades": 52,
+        "max_drawdown": 28.45,
+        "start_capital": 15.0,
+        "end_capital": 58.31,
+        "optimized_at": "2026-04-08T17:37:22",
+        "mode": "best_profit",
+        "start_date": "2026-01-08",
+        "end_date": "2026-04-08"
+    }
+}

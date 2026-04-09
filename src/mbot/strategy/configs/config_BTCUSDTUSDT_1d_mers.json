@@ -1,0 +1,37 @@
+{
+    "market": {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "signal": {
+        "risk_per_trade_pct": 3.0,
+        "leverage": 10,
+        "entropy_window": 22,
+        "entropy_lookback": 20,
+        "energy_lookback": 4,
+        "min_entropy_drop_pct": 0.060000000000000005,
+        "min_energy_rise_pct": 0.9000000000000001,
+        "atr_period": 24,
+        "atr_sl_mult": 0.5,
+        "atr_tp_mult": 5.5,
+        "use_regime_filter": 1,
+        "regime_window": 35,
+        "allow_range_trade": 1,
+        "use_multitf_filter": 1,
+        "meso_tf_mult": 6,
+        "macro_tf_mult": 10
+    },
+    "_meta": {
+        "strategy": "MDEF-MERS",
+        "pnl_pct": 352.18,
+        "win_rate": 30.4,
+        "total_trades": 23,
+        "max_drawdown": 16.72,
+        "start_capital": 15.0,
+        "end_capital": 67.83,
+        "optimized_at": "2026-04-08T09:12:02",
+        "mode": "best_profit",
+        "start_date": "2023-04-09",
+        "end_date": "2026-04-08"
+    }
+}
