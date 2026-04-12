@@ -71,7 +71,8 @@
     "risk": {
         "leverage": 5,
         "margin_mode": "isolated",
-        "risk_per_trade_pct": 1.0
+        "risk_per_trade_pct": 1.0,
+        "max_risk_per_trade_pct": 3.0
     },
     "signal": {
         "_info": "MDEF-MERS Hybrid Bot - Vollstaendige 4-Layer Implementierung",

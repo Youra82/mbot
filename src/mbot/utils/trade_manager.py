@@ -234,6 +234,15 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
     contracts = calculate_contracts(balance, current_price, est_sl_price, min_amount,
                                     risk_per_trade_pct)
 
+    # Margin-Cap: Kontrakte duerfen verfuegbare Margin nicht ueberschreiten
+    max_contracts_by_margin = (balance * leverage) / current_price * 0.99  # 1% Puffer
+    if contracts > max_contracts_by_margin:
+        logger.warning(
+            f"Kontrakte {contracts:.4f} > Margin-Cap {max_contracts_by_margin:.4f} "
+            f"(Balance={balance:.2f} USDT, Hebel={leverage}x). Reduziere auf Cap."
+        )
+        contracts = max_contracts_by_margin
+
     # Notional-Check
     notional = contracts * current_price
     if notional < MIN_NOTIONAL_USDT:

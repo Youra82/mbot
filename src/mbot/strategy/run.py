@@ -98,8 +98,12 @@ def run_for_account(account: dict, telegram_config: dict,
         signal_config = loaded_cfg.get('signal', {})
         # Optimierte Risiko-Parameter aus Config in risk_config uebernehmen (Config hat Vorrang)
         risk_config = dict(risk_config)
+        max_risk = float(risk_config.get('max_risk_per_trade_pct', 5.0))
         if 'risk_per_trade_pct' in signal_config:
-            risk_config['risk_per_trade_pct'] = signal_config['risk_per_trade_pct']
+            raw_risk = float(signal_config['risk_per_trade_pct'])
+            if raw_risk > max_risk:
+                logger.warning(f"risk_per_trade_pct {raw_risk}% > max {max_risk}% — gecappt.")
+            risk_config['risk_per_trade_pct'] = min(raw_risk, max_risk)
         if 'leverage' in signal_config:
             risk_config['leverage'] = signal_config['leverage']
         logger.info(f"Config geladen: config_{safe_name}_mers.json "
