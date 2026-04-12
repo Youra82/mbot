@@ -37,7 +37,7 @@ from mbot.utils.trade_manager import (
     clear_position,
     read_active_positions,
 )
-from mbot.strategy.mers_signal import get_mers_signal, check_mers_exit
+from mbot.strategy.mers_signal import get_mers_signal
 
 
 # ============================================================
@@ -113,36 +113,7 @@ def run_for_account(account: dict, telegram_config: dict,
                        f"Bitte zuerst run_pipeline.sh ausfuehren.")
 
     if mode == 'check':
-        # --- State-basierter Exit (MERS): Entropy steigt oder Acc dreht ---
-        pos = read_position(symbol, timeframe)
-        if pos is not None:
-            entry_side = pos.get('side')
-            df_check = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
-            if not df_check.empty and entry_side:
-                if check_mers_exit(df_check, signal_config, entry_side):
-                    logger.info(
-                        f"MERS State-Exit ausgeloest fuer {symbol}: "
-                        f"Entropy steigt oder Beschleunigung gedreht."
-                    )
-                    try:
-                        exchange.cancel_all_orders_for_symbol(symbol)
-                        exchange.close_position(symbol)
-                        logger.info(f"Position {symbol} manuell geschlossen (State-Exit).")
-                    except Exception as e:
-                        logger.error(f"Fehler beim State-Exit-Schliessen: {e}")
-
-                    send_message(
-                        telegram_config.get('bot_token'),
-                        telegram_config.get('chat_id'),
-                        f"mbot MERS - STATE EXIT\n\n"
-                        f"Symbol:  {symbol} ({timeframe})\n"
-                        f"Seite:   {entry_side.upper() if entry_side else '?'}\n"
-                        f"Grund:   Entropy steigt / Beschleunigung dreht\n"
-                        f"(MERS state-basierter Exit vor SL/TP)"
-                    )
-                    clear_position(symbol, timeframe)
-                    return
-
+        # State-basierter Exit deaktiviert — Exit nur via hartem SL/TP (wie Backtester)
         # --- Positions-Check: Ist der Trade noch offen? ---
         check_position_status(exchange, symbol, timeframe, telegram_config, logger)
 
