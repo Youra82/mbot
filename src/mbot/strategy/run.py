@@ -131,6 +131,9 @@ def run_for_account(account: dict, telegram_config: dict,
             logger.warning(f"Keine OHLCV-Daten fuer {symbol}. Ueberspringe.")
             return
 
+        # Letzte (noch offene) Kerze entfernen — Signal nur auf geschlossenen Kerzen (wie Backtester)
+        df = df.iloc[:-1]
+
         # MERS-Signal berechnen
         signal = get_mers_signal(df, signal_config)
         logger.info(
