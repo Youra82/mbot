@@ -105,7 +105,9 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
                                risk_config.get('risk_per_trade_pct', 1.0)))
     leverage           = int(signal_config.get('leverage', risk_config.get('leverage', 1)))
-    fee_rate           = float(risk_config.get('fee_rate_pct', 0.06)) / 100.0
+    fee_rate           = float(risk_config.get('fee_rate_pct',       0.06)) / 100.0
+    slippage_pct       = float(risk_config.get('entry_slippage_pct', 0.15))
+    min_notional_usdt  = float(risk_config.get('min_notional_usdt',  5.0))
 
     # --- Signal-Parameter auslesen ---
     entropy_window    = int(signal_config.get('entropy_window',       20))
@@ -273,13 +275,26 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             if side == 'short' and mtf['direction'] > 0:
                 continue
 
-        # --- SL/TP berechnen (ATR-basiert) ---
+        # --- Slippage auf Entry-Preis (Market Order Realismus) ---
+        if side == 'long':
+            entry_price = entry_price * (1.0 + slippage_pct / 100.0)
+        else:
+            entry_price = entry_price * (1.0 - slippage_pct / 100.0)
+
+        # --- SL/TP berechnen (ATR-basiert, vom geslippten Entry) ---
         if side == 'long':
             sl_price_abs = entry_price - atr_sl_mult * cur_atr
             tp_price_abs = entry_price + atr_tp_mult * cur_atr
         else:
             sl_price_abs = entry_price + atr_sl_mult * cur_atr
             tp_price_abs = entry_price - atr_tp_mult * cur_atr
+
+        # --- Min-Notional Check (wie Live Bot) ---
+        sl_dist = abs(entry_price - sl_price_abs)
+        risk_amount_check = capital * risk_per_trade_pct / 100.0
+        contracts_check = risk_amount_check / sl_dist if sl_dist > 0 else 0.0
+        if contracts_check * entry_price < min_notional_usdt:
+            continue
 
         idx = df.index[i]
         entry_time = idx.isoformat() if hasattr(idx, 'isoformat') else str(idx)
