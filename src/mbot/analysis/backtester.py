@@ -146,7 +146,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     trade    = {}
 
     total_steps      = len(df) - MIN_CANDLES
-    checkpoint_every = max(1, total_steps // 4)  # 4 Checkpoints: 25/50/75/100%
+    checkpoint_every = max(1, total_steps // 8)  # 8 Checkpoints: 12.5/25/.../100%
 
     for i in range(MIN_CANDLES, len(df)):
         # --- Optuna Pruning: Intermediate Value alle 25% der Kerzen ---

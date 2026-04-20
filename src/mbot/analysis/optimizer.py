@@ -231,7 +231,7 @@ def main():
             study_name=study_name,
             direction='maximize',
             load_if_exists=True,
-            pruner=optuna.pruners.MedianPruner(n_startup_trials=30, n_warmup_steps=1),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=20, n_warmup_steps=1),
         )
 
         try:
