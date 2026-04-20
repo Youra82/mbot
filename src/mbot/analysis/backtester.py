@@ -105,6 +105,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     risk_per_trade_pct = float(signal_config.get('risk_per_trade_pct',
                                risk_config.get('risk_per_trade_pct', 1.0)))
     leverage           = int(signal_config.get('leverage', risk_config.get('leverage', 1)))
+    fee_rate           = float(risk_config.get('fee_rate_pct', 0.06)) / 100.0
 
     # --- Signal-Parameter auslesen ---
     entropy_window    = int(signal_config.get('entropy_window',       20))
@@ -180,6 +181,10 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                     pnl_usdt = pos_contracts * (exit_p - entry)
                 else:
                     pnl_usdt = pos_contracts * (entry - exit_p)
+
+                # Handelsgebühren (Entry + Exit Notional × fee_rate pro Leg)
+                fee_usdt = pos_contracts * (entry + exit_p) * fee_rate
+                pnl_usdt -= fee_usdt
 
                 pnl_pct  = pnl_usdt / capital * 100 if capital > 0 else 0.0
                 capital  = max(capital + pnl_usdt, 0.0)

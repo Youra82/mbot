@@ -214,6 +214,7 @@ def main():
         print(f"\n===== MERS Optimierung: {CURRENT_SYMBOL} ({CURRENT_TIMEFRAME}) =====")
         print(f"  Modus: {OPTIM_MODE} | Trials: {args.trials} | Kapital: {START_CAPITAL} USDT")
         print(f"  Constraints: MaxDD={args.max_drawdown}% | MinWR={args.min_win_rate}% | MinPnL={args.min_pnl}%")
+        print(f"  Gebuehren: {RISK_CONFIG.get('fee_rate_pct', 0.06)}% pro Leg ({RISK_CONFIG.get('fee_rate_pct', 0.06) * 2:.2f}% Round-Trip) — in PnL eingerechnet")
 
         HISTORICAL_DATA = load_data(exchange, CURRENT_SYMBOL, CURRENT_TIMEFRAME,
                                      args.start_date, args.end_date)
@@ -344,6 +345,7 @@ def main():
                 'mode':          OPTIM_MODE,
                 'start_date':    args.start_date,
                 'end_date':      args.end_date,
+                'fee_rate_pct':  RISK_CONFIG.get('fee_rate_pct', 0.06),
             },
         }
 
