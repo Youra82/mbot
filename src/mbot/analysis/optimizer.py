@@ -83,11 +83,6 @@ def objective(trial):
     leverage         = trial.suggest_int(  'leverage',          5,   20)
     risk_per_trade   = trial.suggest_float('risk_per_trade_pct', 0.5, 3.0, step=0.25)
 
-    # --- MDEF Multi-Timeframe Parameter ---
-    use_multitf_filter = trial.suggest_int('use_multitf_filter', 0, 1)
-    meso_tf_mult       = trial.suggest_int('meso_tf_mult',       2,  8)
-    macro_tf_mult      = trial.suggest_int('macro_tf_mult',      8, 32)
-
     signal_config = {
         'risk_per_trade_pct':   risk_per_trade,
         'leverage':             leverage,
@@ -102,17 +97,16 @@ def objective(trial):
         'use_regime_filter':    use_regime_filter,
         'regime_window':        regime_window,
         'allow_range_trade':    allow_range_trade,
-        'use_multitf_filter':   use_multitf_filter,
-        'meso_tf_mult':         meso_tf_mult,
-        'macro_tf_mult':        macro_tf_mult,
+        'use_multitf_filter':   0,
     }
 
     result = run_backtest(
-        HISTORICAL_DATA.copy(),
+        HISTORICAL_DATA,
         signal_config,
         RISK_CONFIG,
         start_capital=START_CAPITAL,
         symbol=CURRENT_SYMBOL,
+        trial=trial,
     )
 
     pnl      = result.get('total_pnl_pct', -9999.0)
@@ -237,6 +231,7 @@ def main():
             study_name=study_name,
             direction='maximize',
             load_if_exists=True,
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=30, n_warmup_steps=1),
         )
 
         try:
@@ -298,13 +293,11 @@ def main():
             'use_regime_filter':    best_params['use_regime_filter'],
             'regime_window':        best_params['regime_window'],
             'allow_range_trade':    best_params['allow_range_trade'],
-            'use_multitf_filter':   best_params['use_multitf_filter'],
-            'meso_tf_mult':         best_params['meso_tf_mult'],
-            'macro_tf_mult':        best_params['macro_tf_mult'],
+            'use_multitf_filter':   0,
         }
 
         final_result = run_backtest(
-            HISTORICAL_DATA.copy(), best_signal_config, RISK_CONFIG,
+            HISTORICAL_DATA, best_signal_config, RISK_CONFIG,
             start_capital=START_CAPITAL, symbol=CURRENT_SYMBOL,
         )
 

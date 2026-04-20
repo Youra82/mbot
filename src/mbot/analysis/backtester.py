@@ -91,7 +91,8 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
 
 
 def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
-                  start_capital: float = 1000.0, symbol: str = '') -> dict:
+                  start_capital: float = 1000.0, symbol: str = '',
+                  trial=None) -> dict:
     """
     Fuehrt den MERS-Backtest durch.
 
@@ -144,7 +145,20 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     in_trade = False
     trade    = {}
 
+    total_steps      = len(df) - MIN_CANDLES
+    checkpoint_every = max(1, total_steps // 4)  # 4 Checkpoints: 25/50/75/100%
+
     for i in range(MIN_CANDLES, len(df)):
+        # --- Optuna Pruning: Intermediate Value alle 25% der Kerzen ---
+        if trial is not None:
+            step = (i - MIN_CANDLES) // checkpoint_every
+            if step > 0 and (i - MIN_CANDLES) % checkpoint_every == 0:
+                pnl_so_far = (capital - start_capital) / start_capital * 100 if start_capital > 0 else 0.0
+                trial.report(pnl_so_far, step)
+                if trial.should_prune():
+                    import optuna
+                    raise optuna.exceptions.TrialPruned()
+
         current = df.iloc[i]
 
         # --- Trade-Aufloesung (SL/TP hit check) ---
