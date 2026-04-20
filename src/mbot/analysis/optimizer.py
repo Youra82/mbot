@@ -362,9 +362,7 @@ def main():
         print(f"       regime_filter={bool(best_params['use_regime_filter'])} "
               f"regime_window={best_params['regime_window']} "
               f"allow_range={bool(best_params['allow_range_trade'])}")
-        print(f"       multitf_filter={bool(best_params['use_multitf_filter'])} "
-              f"meso_mult={best_params['meso_tf_mult']} "
-              f"macro_mult={best_params['macro_tf_mult']}")
+        print(f"       multitf_filter=False (deaktiviert)")
 
         run_results['saved'].append({
             'symbol':      CURRENT_SYMBOL,
