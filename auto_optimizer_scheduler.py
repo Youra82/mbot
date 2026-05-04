@@ -17,7 +17,7 @@ import json
 import logging
 import argparse
 import subprocess
-from datetime import datetime, timedelta, date
+from datetime import datetime
 
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = SCRIPT_DIR
@@ -25,20 +25,10 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 SETTINGS_FILE    = os.path.join(PROJECT_ROOT, 'settings.json')
 SECRET_FILE      = os.path.join(PROJECT_ROOT, 'secret.json')
-CONFIGS_DIR      = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
 CACHE_DIR        = os.path.join(PROJECT_ROOT, 'artifacts', 'cache')
 LAST_RUN_FILE    = os.path.join(CACHE_DIR, '.last_optimization_run')
 IN_PROGRESS_FILE = os.path.join(CACHE_DIR, '.optimization_in_progress')
-OPTIMIZER_PY     = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'analysis', 'optimizer.py')
-PYTHON_EXE       = os.path.join(PROJECT_ROOT, '.venv', 'bin', 'python3')
-
-# Lookback je Timeframe (Tage)
-LOOKBACK_MAP = {
-    '5m': 60,  '15m': 60,
-    '30m': 365, '1h': 365,
-    '2h': 730,  '4h': 730,
-    '6h': 1095, '1d': 1095,
-}
+PORTFOLIO_SCRIPT = os.path.join(PROJECT_ROOT, 'run_portfolio_optimizer.py')
 
 log_dir = os.path.join(PROJECT_ROOT, 'logs')
 os.makedirs(log_dir, exist_ok=True)
@@ -125,54 +115,6 @@ def _telegram_send(bot_token: str, chat_id: str, message: str):
         log.warning(f"Telegram-Fehler: {e}")
 
 
-def _resolve_pairs(opt_settings: dict, live_settings: dict) -> list:
-    """Gibt [(symbol, timeframe)] zurück — aus settings oder active_strategies."""
-    sym_cfg = opt_settings.get('symbols_to_optimize', 'auto')
-    tf_cfg  = opt_settings.get('timeframes_to_optimize', 'auto')
-
-    # Explizite Konfiguration: alle Kombinationen
-    if str(sym_cfg).lower() != 'auto' and str(tf_cfg).lower() != 'auto':
-        syms = sym_cfg if isinstance(sym_cfg, list) else [sym_cfg]
-        tfs  = tf_cfg  if isinstance(tf_cfg,  list) else [tf_cfg]
-        pairs = []
-        for sym in syms:
-            if '/' not in sym:
-                sym = f"{sym.upper()}/USDT:USDT"
-            for tf in tfs:
-                pairs.append((sym, tf))
-        return pairs
-
-    # Auto: aus active_strategies lesen
-    pairs, seen = [], set()
-    for s in live_settings.get('active_strategies', []):
-        if not s.get('active', True):
-            continue
-        sym = s.get('symbol', '')
-        tf  = s.get('timeframe', '')
-        if sym and tf and (sym, tf) not in seen:
-            pairs.append((sym, tf))
-            seen.add((sym, tf))
-    return pairs or [('BTC/USDT:USDT', '15m'), ('ETH/USDT:USDT', '15m')]
-
-
-def _resolve_lookback(value, timeframes: list) -> int:
-    if str(value).lower() != 'auto':
-        return int(value)
-    return max((LOOKBACK_MAP.get(tf, 365) for tf in timeframes), default=365)
-
-
-def _read_config_pnl(sym: str, tf: str) -> float | None:
-    """Liest den PnL aus einer bestehenden Config-Datei (_meta.pnl_pct)."""
-    safe = f"{sym.replace('/', '').replace(':', '')}_{tf}"
-    path = os.path.join(CONFIGS_DIR, f"config_{safe}_mers.json")
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path) as f:
-            return json.load(f).get('_meta', {}).get('pnl_pct')
-    except Exception:
-        return None
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -184,9 +126,8 @@ def main():
                         help='Optimierung sofort erzwingen (ignoriert enabled + Schedule)')
     args = parser.parse_args()
 
-    settings      = _load_settings()
-    opt_settings  = settings.get('optimization_settings', {})
-    live_settings = settings.get('live_trading_settings', {})
+    settings     = _load_settings()
+    opt_settings = settings.get('optimization_settings', {})
 
     if args.force:
         log.info("--force gesetzt: Optimierung wird sofort gestartet.")
@@ -217,86 +158,34 @@ def main():
     except Exception:
         pass
 
-    send_tg     = opt_settings.get('send_telegram_on_completion', False)
-    pairs       = _resolve_pairs(opt_settings, live_settings)
-    timeframes  = list({tf for _, tf in pairs})
-    lookback    = _resolve_lookback(opt_settings.get('lookback_days', 'auto'), timeframes)
-    n_trials    = int(opt_settings.get('num_trials', 200))
-    cpu_cores   = int(opt_settings.get('cpu_cores', 1))
-    capital     = float(opt_settings.get('start_capital', 1000))
-    constraints = opt_settings.get('constraints', {})
-    max_dd      = float(constraints.get('max_drawdown_pct', 30))
-    min_wr      = float(constraints.get('min_win_rate_pct', 50))
-    min_pnl     = float(constraints.get('min_pnl_pct', 0))
-    mode        = opt_settings.get('mode', 'strict')
-    date_from   = (date.today() - timedelta(days=lookback)).strftime('%Y-%m-%d')
-    date_to     = date.today().strftime('%Y-%m-%d')
-
-    pairs_str = ', '.join(f"{s.split('/')[0]}/{t}" for s, t in pairs)
-    log.info(f"Paare: {pairs_str}")
-    log.info(f"Kapital={capital} USDT | MaxDD={max_dd}% | MinWR={min_wr}% | "
-             f"MinPnL={min_pnl}% | Trials={n_trials} | Jobs={cpu_cores} | "
-             f"Zeitraum: {date_from} → {date_to}")
-
-    # Alten PnL VOR Optimierung lesen (für Vergleich in Telegram-Nachricht)
-    old_pnl = {(sym, tf): _read_config_pnl(sym, tf) for sym, tf in pairs}
-
+    send_tg    = opt_settings.get('send_telegram_on_completion', False)
+    capital    = float(opt_settings.get('start_capital', 1000))
+    max_dd     = float(opt_settings.get('constraints', {}).get('max_drawdown_pct', 30))
+    start_date = opt_settings.get('start_date', 'auto')
+    end_date   = opt_settings.get('end_date',   'auto')
     start_time = datetime.now()
 
     if send_tg:
         _telegram_send(bot_token, chat_id,
-            f"🚀 mbot Auto-Optimizer GESTARTET\n"
-            f"Paare: {pairs_str}\n"
-            f"Trials: {n_trials}\n"
-            f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            f"🔍 mbot Portfolio-Optimizer GESTARTET\n"
+            f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Führt frische Backtests aller Configs durch und wählt bestes Portfolio.")
 
     # In-progress Marker setzen
     os.makedirs(CACHE_DIR, exist_ok=True)
     open(IN_PROGRESS_FILE, 'w').close()
 
-    python_exe = PYTHON_EXE if os.path.exists(PYTHON_EXE) else sys.executable
-    opt_failed = set()
-
     try:
-        # Ein Subprocess pro Paar — bessere Fehler-Isolation
-        for sym, tf in pairs:
-            coin = sym.split('/')[0]
-            log.info(f"Optimiere {sym} ({tf}) ...")
-            cmd = [
-                python_exe, OPTIMIZER_PY,
-                '--symbols',       coin,
-                '--timeframes',    tf,
-                '--start_date',    date_from,
-                '--end_date',      date_to,
-                '--start_capital', str(capital),
-                '--trials',        str(n_trials),
-                '--jobs',          str(cpu_cores),
-                '--max_drawdown',  str(max_dd),
-                '--min_win_rate',  str(min_wr),
-                '--min_pnl',       str(min_pnl),
-                '--mode',          mode,
-            ]
-            try:
-                proc = subprocess.run(
-                    cmd, cwd=PROJECT_ROOT,
-                    capture_output=True, text=True, timeout=7200,
-                )
-                if proc.returncode != 0:
-                    log.error(f"optimizer.py Fehler für {sym}/{tf} "
-                              f"(rc={proc.returncode}):\n{proc.stderr[-500:]}")
-                    opt_failed.add((sym, tf))
-                else:
-                    log.info(f"  {sym} ({tf}) — Optimierung abgeschlossen.")
-                    if proc.stdout:
-                        out = proc.stdout[-2000:] if len(proc.stdout) > 2000 else proc.stdout
-                        log.debug(f"  Output:\n{out}")
-            except subprocess.TimeoutExpired:
-                log.error(f"Timeout bei {sym}/{tf} nach 7200s.")
-                opt_failed.add((sym, tf))
-
-        if opt_failed:
-            failed_display = [f"{s.split('/')[0]}/{t}" for s, t in opt_failed]
-            log.warning(f"Optimizer fehlgeschlagen für: {failed_display}")
+        cmd = [sys.executable, PORTFOLIO_SCRIPT,
+               '--capital', str(capital), '--max-dd', str(max_dd), '--auto-write']
+        if start_date not in ('auto', '', None):
+            cmd += ['--start-date', start_date]
+        if end_date not in ('auto', '', None):
+            cmd += ['--end-date', end_date]
+        log.info(f"Starte Portfolio-Optimizer: {' '.join(str(x) for x in cmd)}")
+        proc = subprocess.run(cmd, cwd=PROJECT_ROOT, timeout=7200)
+        rc   = proc.returncode
+        log.info(f"Portfolio-Optimizer beendet (rc={rc}).")
 
         # Last-run Timestamp speichern
         with open(LAST_RUN_FILE, 'w') as f:
@@ -310,39 +199,33 @@ def main():
         log.info(f"Auto-Optimierung abgeschlossen in {elapsed / 60:.1f} min.")
 
         if send_tg:
-            total = len(pairs)
-            lines = [f"✅ mbot Auto-Optimizer abgeschlossen (Dauer: {dur_str})", ""]
+            if rc == 0:
+                try:
+                    with open(SETTINGS_FILE) as sf:
+                        stg = json.load(sf)
+                    active = [s for s in stg.get('live_trading_settings', {})
+                              .get('active_strategies', []) if s.get('active')]
+                    lines = [f"✅ mbot Portfolio-Optimizer abgeschlossen (Dauer: {dur_str})"]
+                    if active:
+                        lines.append(f"\n✔ Aktives Portfolio ({len(active)} Strategie(n)):")
+                        for s in active:
+                            lines.append(f"• {s['symbol'].split('/')[0]}/{s['timeframe']}")
+                    _telegram_send(bot_token, chat_id, '\n'.join(lines))
+                except Exception:
+                    _telegram_send(bot_token, chat_id,
+                        f"✅ mbot Portfolio-Optimizer abgeschlossen (Dauer: {dur_str})")
+            else:
+                _telegram_send(bot_token, chat_id,
+                    f"❌ mbot Portfolio-Optimizer FEHLER (rc={rc}, Dauer: {dur_str})")
 
-            kept_lines   = []
-            failed_lines = []
-            for sym, tf in pairs:
-                coin    = sym.split('/')[0]
-                new_pnl = _read_config_pnl(sym, tf)
-                old_val = old_pnl.get((sym, tf))
-                safe    = f"{sym.replace('/', '').replace(':', '')}_{tf}"
-                fn      = f"config_{safe}_mers.json"
-
-                if (sym, tf) in opt_failed or new_pnl is None:
-                    failed_lines.append(f"• {coin}/{tf}: Optimizer fehlgeschlagen")
-                elif old_val is not None and new_pnl <= old_val:
-                    failed_lines.append(f"• {coin}/{tf}: existing_better_{old_val:.2f}pct")
-                else:
-                    sign = '+' if new_pnl >= 0 else ''
-                    kept_lines.append(f"• {coin}/{tf}: {sign}{new_pnl:.2f}% → {fn}")
-
-            lines.append(f"✔ Gespeichert ({len(kept_lines)}/{total}):")
-            lines.extend(kept_lines if kept_lines else ["  — keine Verbesserung"])
-            if failed_lines:
-                lines.append("")
-                lines.append(f"❌ Fehlgeschlagen ({len(failed_lines)}/{total}):")
-                lines.extend(failed_lines)
-
-            _telegram_send(bot_token, chat_id, '\n'.join(lines))
-
+    except subprocess.TimeoutExpired:
+        log.error("Timeout: Portfolio-Optimizer hat zu lange gedauert.")
+        if send_tg:
+            _telegram_send(bot_token, chat_id, "mbot Portfolio-Optimierung: Timeout!")
     except Exception as e:
         log.error(f"Unerwarteter Fehler: {e}", exc_info=True)
         if send_tg:
-            _telegram_send(bot_token, chat_id, f"mbot Auto-Optimierung FEHLER: {e}")
+            _telegram_send(bot_token, chat_id, f"mbot Portfolio-Optimierung FEHLER: {e}")
     finally:
         if os.path.exists(IN_PROGRESS_FILE):
             os.remove(IN_PROGRESS_FILE)
