@@ -54,7 +54,7 @@
             }
         },
         "start_capital": 15,
-        "start_date": "auto",
+        "start_date": "2025-01-01",
         "end_date": "auto",
         "constraints": {
             "max_drawdown_pct": 30
