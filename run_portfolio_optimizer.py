@@ -124,6 +124,171 @@ def _write_to_settings(selected_files: list, results_dict: dict) -> None:
         json.dump(settings, f, indent=4)
 
 
+BOT_NAME = 'mbot'
+
+
+def _get_telegram_creds():
+    try:
+        with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
+            s = json.load(f)
+        acc = (s.get(BOT_NAME, []) or [{}])[0]
+        t, c = acc.get('telegram_bot_token', ''), acc.get('telegram_chat_id', '')
+        return (t, c) if t and c else (None, None)
+    except Exception:
+        return None, None
+
+
+def _send_telegram(msg):
+    token, chat = _get_telegram_creds()
+    if not token:
+        return
+    try:
+        import requests
+        requests.post(f'https://api.telegram.org/bot{token}/sendMessage',
+                      data={'chat_id': chat, 'text': msg}, timeout=10)
+    except Exception:
+        pass
+
+
+def _send_telegram_doc(fpath, caption=''):
+    token, chat = _get_telegram_creds()
+    if not token:
+        return
+    try:
+        import requests
+        with open(fpath, 'rb') as fh:
+            requests.post(f'https://api.telegram.org/bot{token}/sendDocument',
+                          data={'chat_id': chat, 'caption': caption},
+                          files={'document': fh}, timeout=30)
+    except Exception:
+        pass
+
+
+def generate_trades_excel(final, results_dict, capital, start_date, end_date):
+    """Erstellt Excel-Tabelle mit allen Portfolio-Trades."""
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        print(f'  {Y}openpyxl nicht installiert — Excel uebersprungen.{NC}')
+        return None
+
+    trades = final.get('trades', [])
+    if not trades:
+        return None
+
+    rows = []
+    for i, t in enumerate(trades, 1):
+        fname  = t.get('_strategy_key', '')
+        rd     = results_dict.get(fname, {})
+        symbol = rd.get('symbol', '?')
+        tf     = t.get('_timeframe', rd.get('timeframe', '?'))
+        result = t.get('result', '')
+        pnl    = t.get('portfolio_pnl_usdt', 0.0)
+        equity = t.get('portfolio_capital_after', 0.0)
+        rows.append({
+            'Nr':            i,
+            'Datum':         str(t.get('entry_time', ''))[:16].replace('T', ' '),
+            'Symbol':        symbol,
+            'Timeframe':     tf,
+            'Richtung':      str(t.get('direction', '?')).upper(),
+            'Ergebnis':      'TP erreicht' if result == 'win' else 'SL erreicht',
+            'PnL (USDT)':    round(pnl, 4),
+            'Gesamtkapital': round(equity, 4),
+        })
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Trades'
+    hdr  = PatternFill('solid', fgColor='1E3A5F')
+    win  = PatternFill('solid', fgColor='D6F4DC')
+    loss = PatternFill('solid', fgColor='FAD7D7')
+    alt  = PatternFill('solid', fgColor='F2F2F2')
+    brd  = Border(left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+                  top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'))
+    cw   = {'Nr': 6, 'Datum': 18, 'Symbol': 22, 'Timeframe': 12, 'Richtung': 10,
+             'Ergebnis': 14, 'PnL (USDT)': 14, 'Gesamtkapital': 16}
+    hdrs = list(rows[0].keys())
+    for c, h in enumerate(hdrs, 1):
+        cell = ws.cell(row=1, column=c, value=h)
+        cell.fill = hdr
+        cell.font = Font(bold=True, color='FFFFFF', size=11)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = brd
+        ws.column_dimensions[get_column_letter(c)].width = cw.get(h, 14)
+    ws.row_dimensions[1].height = 22
+    for ri, row in enumerate(rows, 2):
+        f = win if row['Ergebnis'] == 'TP erreicht' else (loss if ri % 2 == 0 else alt)
+        for c, key in enumerate(hdrs, 1):
+            cell = ws.cell(row=ri, column=c, value=row[key])
+            cell.fill = f
+            cell.border = brd
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            if key in ('PnL (USDT)', 'Gesamtkapital'):
+                cell.number_format = '#,##0.0000'
+        ws.row_dimensions[ri].height = 18
+    pnl = final.get('total_pnl_pct', 0)
+    dd  = final.get('max_drawdown', 0)
+    wr  = final.get('win_rate', 0)
+    eq  = final.get('end_capital', rows[-1]['Gesamtkapital'] if rows else capital)
+    n   = final.get('total_trades', len(trades))
+    sr  = len(rows) + 3
+    for label, val in [('Zeitraum', f'{start_date} -> {end_date}'), ('Trades', n),
+                        ('Win-Rate', f'{wr:.1f}%'), ('PnL', f'{pnl:+.1f}%'),
+                        ('Endkapital', f'{eq:.2f} USDT'), ('Max Drawdown', f'{dd:.1f}%')]:
+        ws.cell(row=sr, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=sr, column=2, value=val)
+        sr += 1
+    outfile = f'/tmp/{BOT_NAME}_trades.xlsx'
+    wb.save(outfile)
+    print(f'  {G}✓ Excel erstellt: {outfile}{NC}')
+    return outfile
+
+
+def generate_equity_html(final, capital, start_date, end_date, labels):
+    """Erstellt interaktiven Portfolio-Equity-Chart (aus portfolio_capital_after)."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print(f'  {Y}plotly nicht installiert — Chart uebersprungen.{NC}')
+        return None
+
+    trades = final.get('trades', [])
+    if not trades:
+        return None
+
+    times = [str(trades[0].get('entry_time', start_date or ''))[:16]]
+    vals  = [capital]
+    for t in trades:
+        times.append(str(t.get('entry_time', ''))[:16])
+        vals.append(float(t.get('portfolio_capital_after', vals[-1])))
+
+    pnl  = final.get('total_pnl_pct', 0)
+    dd   = final.get('max_drawdown', 0)
+    wr   = final.get('win_rate', 0)
+    n    = final.get('total_trades', len(trades))
+    eq   = final.get('end_capital', vals[-1] if vals else capital)
+    sign = '+' if pnl >= 0 else ''
+    title = (f"{BOT_NAME} Portfolio — {', '.join(labels)} | "
+             f"PnL: {sign}{pnl:.1f}% | Equity: {eq:.2f} USDT | "
+             f"MaxDD: {dd:.1f}% | WR: {wr:.1f}% | {n} Trades")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=times, y=vals, mode='lines', name='Portfolio Equity',
+                             line=dict(color='#2563eb', width=2)))
+    fig.add_hline(y=capital, line=dict(color='rgba(100,100,100,0.4)', width=1, dash='dash'),
+                  annotation_text=f'Start {capital:.0f} USDT', annotation_position='top left')
+    fig.update_layout(title=dict(text=title, font=dict(size=12), x=0.5),
+                      height=600, template='plotly_white', hovermode='x unified',
+                      xaxis=dict(rangeslider=dict(visible=True), fixedrange=False),
+                      yaxis=dict(title='Equity (USDT)', fixedrange=False))
+    outfile = f'/tmp/{BOT_NAME}_portfolio_equity.html'
+    fig.write_html(outfile)
+    print(f'  {G}✓ Chart erstellt: {outfile}{NC}')
+    return outfile
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='mbot Portfolio-Optimizer')
     parser.add_argument('--capital',    type=float, default=None)
@@ -234,6 +399,30 @@ def main() -> int:
                 print(f"{G}✓ settings.json aktualisiert.{NC}\n")
             else:
                 print(f"{Y}  settings.json NICHT geaendert.{NC}\n")
+
+    # ── Reports & Telegram ──────────────────────────────────────────────────
+    if args.auto_write:
+        labels = [
+            f"{results_dict.get(f, {}).get('symbol', '?')}/{results_dict.get(f, {}).get('timeframe', '?')}"
+            for f in selected_files
+        ]
+        pnl = final.get('total_pnl_pct', 0)
+        dd  = final.get('max_drawdown', 0)
+        n   = final.get('total_trades', 0)
+        wr  = final.get('win_rate', 0)
+        eq  = final.get('end_capital', 0)
+        summary = (f"{BOT_NAME} Auto-Optimizer\n"
+                   f"{len(selected_files)} Strategien | {n} Trades | WR: {wr:.1f}%\n"
+                   f"PnL: {pnl:+.1f}% | MaxDD: {dd:.1f}% | Equity: {eq:.2f} USDT\n"
+                   f"Zeitraum: {start_date} -> {end_date}")
+        _send_telegram(summary)
+        xlsx = generate_trades_excel(final, results_dict, capital, start_date, end_date)
+        if xlsx:
+            _send_telegram_doc(xlsx, caption=f'{BOT_NAME} Trades | {n} Trades | WR: {wr:.1f}% | Equity: {eq:.2f} USDT')
+        html = generate_equity_html(final, capital, start_date, end_date, labels)
+        if html:
+            _send_telegram_doc(html, caption=f'{BOT_NAME} Portfolio-Equity | PnL: {pnl:+.1f}% | MaxDD: {dd:.1f}%')
+
     return 0
 
 
