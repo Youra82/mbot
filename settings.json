@@ -4,37 +4,42 @@
         "use_auto_optimizer_results": true,
         "active_strategies": [
             {
-                "symbol": "ETH/USDT:USDT",
-                "timeframe": "30m",
-                "active": true
-            },
-            {
-                "symbol": "AVAX/USDT:USDT",
-                "timeframe": "1h",
-                "active": true
-            },
-            {
-                "symbol": "BNB/USDT:USDT",
-                "timeframe": "2h",
-                "active": true
-            },
-            {
                 "symbol": "DOGE/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
             {
-                "symbol": "LTC/USDT:USDT",
-                "timeframe": "30m",
+                "symbol": "AVAX/USDT:USDT",
+                "timeframe": "6h",
                 "active": true
             },
             {
                 "symbol": "SOL/USDT:USDT",
-                "timeframe": "30m",
+                "timeframe": "1h",
                 "active": true
             },
             {
-                "symbol": "ADA/USDT:USDT",
+                "symbol": "XRP/USDT:USDT",
+                "timeframe": "2h",
+                "active": true
+            },
+            {
+                "symbol": "ETH/USDT:USDT",
+                "timeframe": "6h",
+                "active": true
+            },
+            {
+                "symbol": "BTC/USDT:USDT",
+                "timeframe": "1d",
+                "active": true
+            },
+            {
+                "symbol": "LTC/USDT:USDT",
+                "timeframe": "1d",
+                "active": true
+            },
+            {
+                "symbol": "BNB/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             }
@@ -53,7 +58,7 @@
                 "unit": "days"
             }
         },
-        "start_capital": 15,
+        "start_capital": 30,
         "start_date": "2025-01-01",
         "end_date": "auto",
         "constraints": {
