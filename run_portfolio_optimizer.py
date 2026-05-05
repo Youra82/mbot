@@ -80,6 +80,28 @@ def _build_results_dict(config_files: list, risk_config: dict, capital: float,
     return results_dict
 
 
+def _simulate_current_portfolio(settings: dict, results_dict: dict,
+                                 start_capital: float) -> dict | None:
+    """Simuliert das aktuell aktive Portfolio mit den vorhandenen Backtest-Daten."""
+    from mbot.analysis.portfolio_simulator import run_portfolio_simulation
+    current = [
+        s for s in settings.get('live_trading_settings', {}).get('active_strategies', [])
+        if s.get('active')
+    ]
+    if not current:
+        return None
+    subset = {}
+    for s in current:
+        sym, tf = s.get('symbol', ''), s.get('timeframe', '')
+        for fname, rd in results_dict.items():
+            if rd.get('symbol') == sym and rd.get('timeframe') == tf:
+                subset[fname] = rd
+                break
+    if not subset:
+        return None
+    return run_portfolio_simulation(subset, start_capital)
+
+
 def _write_to_settings(selected_files: list, results_dict: dict) -> None:
     with open(SETTINGS_PATH) as f:
         settings = json.load(f)
@@ -181,9 +203,24 @@ def main() -> int:
         for f in selected_files
     }
 
+    cur_result  = _simulate_current_portfolio(settings, results_dict, capital)
+    cur_cap     = cur_result.get('end_capital', 0) if cur_result else 0
+    new_cap     = final.get('end_capital', 0)
+    if cur_result:
+        print(f"  Aktuelles Portfolio: {cur_cap:.2f} USDT  "
+              f"| PnL: {cur_result.get('total_pnl_pct', 0):+.1f}%  "
+              f"| MaxDD: {cur_result.get('max_drawdown', 0):.2f}%")
+        print(f"  Neues Portfolio:     {new_cap:.2f} USDT  "
+              f"| PnL: {final.get('total_pnl_pct', 0):+.1f}%  "
+              f"| MaxDD: {final.get('max_drawdown', 0):.2f}%\n")
+
     if args.auto_write:
-        _write_to_settings(selected_files, results_dict)
-        print(f"{G}✓ settings.json aktualisiert — {len(selected_files)} Strategie(n).{NC}\n")
+        if cur_result and new_cap <= cur_cap:
+            print(f"{Y}  Neues Portfolio ({new_cap:.2f} USDT) nicht besser als aktuelles "
+                  f"({cur_cap:.2f} USDT) — keine Aenderung.{NC}\n")
+        else:
+            _write_to_settings(selected_files, results_dict)
+            print(f"{G}✓ settings.json aktualisiert — {len(selected_files)} Strategie(n).{NC}\n")
     else:
         if current_set == new_set:
             print(f"{Y}  Portfolio unveraendert — keine Aenderung noetig.{NC}\n")
