@@ -246,47 +246,17 @@ def generate_trades_excel(final, results_dict, capital, start_date, end_date):
     return outfile
 
 
-def generate_equity_html(final, capital, start_date, end_date, labels):
-    """Erstellt interaktiven Portfolio-Equity-Chart (aus portfolio_capital_after)."""
+def generate_equity_html(final, results_dict_subset, capital, start_date, end_date, labels=None):
+    """Delegiert an interactive_chart.generate_portfolio_chart (mit Einzel-Kurven + TP/SL-Marker)."""
     try:
-        import plotly.graph_objects as go
-    except ImportError:
-        print(f'  {Y}plotly nicht installiert — Chart uebersprungen.{NC}')
+        from mbot.analysis.interactive_chart import generate_portfolio_chart
+        path = generate_portfolio_chart(results_dict_subset, final, capital, start_date, end_date)
+        if path:
+            print(f'  {G}✓ Chart erstellt: {path}{NC}')
+        return path
+    except Exception as e:
+        print(f'  {Y}Chart fehlgeschlagen: {e}{NC}')
         return None
-
-    trades = final.get('trades', [])
-    if not trades:
-        return None
-
-    times = [str(start_date or '')[:16]]
-    vals  = [capital]
-    for t in trades:
-        times.append(str(t.get('exit_time', t.get('entry_time', '')))[:16])
-        vals.append(float(t.get('portfolio_capital_after', vals[-1])))
-
-    pnl  = final.get('total_pnl_pct', 0)
-    dd   = final.get('max_drawdown', 0)
-    wr   = final.get('win_rate', 0)
-    n    = final.get('total_trades', len(trades))
-    eq   = final.get('end_capital', vals[-1] if vals else capital)
-    sign = '+' if pnl >= 0 else ''
-    title = (f"{BOT_NAME} Portfolio — {', '.join(labels)} | "
-             f"PnL: {sign}{pnl:.1f}% | Equity: {eq:.2f} USDT | "
-             f"MaxDD: {dd:.1f}% | WR: {wr:.1f}% | {n} Trades")
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=times, y=vals, mode='lines', name='Portfolio Equity',
-                             line=dict(color='#2563eb', width=2)))
-    fig.add_hline(y=capital, line=dict(color='rgba(100,100,100,0.4)', width=1, dash='dash'),
-                  annotation_text=f'Start {capital:.0f} USDT', annotation_position='top left')
-    fig.update_layout(title=dict(text=title, font=dict(size=12), x=0.5),
-                      height=600, template='plotly_white', hovermode='x unified',
-                      xaxis=dict(rangeslider=dict(visible=True), fixedrange=False),
-                      yaxis=dict(title='Equity (USDT)', fixedrange=False))
-    outfile = f'/tmp/{BOT_NAME}_portfolio_equity.html'
-    fig.write_html(outfile)
-    print(f'  {G}✓ Chart erstellt: {outfile}{NC}')
-    return outfile
 
 
 def _do_replot(settings: dict, capital: float, start_date: str, end_date: str) -> int:
@@ -335,10 +305,6 @@ def _do_replot(settings: dict, capital: float, start_date: str, end_date: str) -
     final = run_portfolio_simulation(results_dict, capital)
 
     selected_files = list(results_dict.keys())
-    labels = [
-        f"{results_dict.get(f, {}).get('symbol', '?')}/{results_dict.get(f, {}).get('timeframe', '?')}"
-        for f in selected_files
-    ]
     pnl = final.get('total_pnl_pct', 0)
     dd  = final.get('max_drawdown', 0)
     n   = final.get('total_trades', 0)
@@ -361,7 +327,7 @@ def _do_replot(settings: dict, capital: float, start_date: str, end_date: str) -
     xlsx = generate_trades_excel(final, results_dict, capital, start_date, end_date)
     if xlsx:
         _send_telegram_doc(xlsx, caption=f'{BOT_NAME} Trades | {n} Trades | WR: {wr:.1f}% | Equity: {eq:.2f} USDT')
-    html = generate_equity_html(final, capital, start_date, end_date, labels)
+    html = generate_equity_html(final, results_dict, capital, start_date, end_date)
     if html:
         _send_telegram_doc(html, caption=f'{BOT_NAME} Portfolio-Equity | PnL: {pnl:+.1f}% | MaxDD: {dd:.1f}%')
     return 0
@@ -485,10 +451,6 @@ def main() -> int:
 
     # ── Reports & Telegram ──────────────────────────────────────────────────
     if args.auto_write:
-        labels = [
-            f"{results_dict.get(f, {}).get('symbol', '?')}/{results_dict.get(f, {}).get('timeframe', '?')}"
-            for f in selected_files
-        ]
         pnl = final.get('total_pnl_pct', 0)
         dd  = final.get('max_drawdown', 0)
         n   = final.get('total_trades', 0)
@@ -499,10 +461,11 @@ def main() -> int:
                    f"PnL: {pnl:+.1f}% | MaxDD: {dd:.1f}% | Equity: {eq:.2f} USDT\n"
                    f"Zeitraum: {start_date} -> {end_date}")
         _send_telegram(summary)
+        subset = {f: results_dict[f] for f in selected_files}
         xlsx = generate_trades_excel(final, results_dict, capital, start_date, end_date)
         if xlsx:
             _send_telegram_doc(xlsx, caption=f'{BOT_NAME} Trades | {n} Trades | WR: {wr:.1f}% | Equity: {eq:.2f} USDT')
-        html = generate_equity_html(final, capital, start_date, end_date, labels)
+        html = generate_equity_html(final, subset, capital, start_date, end_date)
         if html:
             _send_telegram_doc(html, caption=f'{BOT_NAME} Portfolio-Equity | PnL: {pnl:+.1f}% | MaxDD: {dd:.1f}%')
 
