@@ -1,6 +1,6 @@
 # src/mbot/analysis/portfolio_simulator.py
 """
-mbot Portfolio Simulator (v2 — Jaegerbot-Stil)
+mbot Portfolio Simulator (v2)
 
 Aenderungen gegenueber v1:
   - Pro-Strategie-Lock statt globalem Lock:
@@ -56,7 +56,7 @@ def _simulate_portfolio(trades: list, start_capital: float) -> dict:
     """
     Simuliert Portfolio mit gemeinsamem Kapital-Pool.
 
-    Regel (Jaegerbot-Stil): Pro Strategie (_strategy_key) darf kein
+    Regel (mbot-Stil): Pro Strategie (_strategy_key) darf kein
     neuer Trade starten waehrend die Strategie noch in einem Trade ist.
     Verschiedene Strategien koennen gleichzeitig laufen.
     """
@@ -155,7 +155,7 @@ def _best_tf_per_coin(results_dict: dict) -> dict:
 def find_best_portfolio(results_dict: dict, start_capital: float,
                         target_max_dd: float, verbose: bool = False) -> dict:
     """
-    Findet das beste Portfolio per Greedy-Algorithmus (Jaegerbot-Stil).
+    Findet das beste Portfolio per Greedy-Algorithmus (mbot-Stil).
 
     Score-Metrik: Calmar Ratio (PnL% / MaxDD%) — balanciert Rendite und Risiko.
     Algorithmus:
