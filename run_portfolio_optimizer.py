@@ -131,8 +131,8 @@ def _get_telegram_creds():
     try:
         with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
             s = json.load(f)
-        acc = (s.get(BOT_NAME, []) or [{}])[0]
-        t, c = acc.get('telegram_bot_token', ''), acc.get('telegram_chat_id', '')
+        tg = s.get('telegram', {})
+        t, c = tg.get('bot_token', ''), tg.get('chat_id', '')
         return (t, c) if t and c else (None, None)
     except Exception:
         return None, None
