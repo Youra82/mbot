@@ -258,10 +258,10 @@ def generate_equity_html(final, capital, start_date, end_date, labels):
     if not trades:
         return None
 
-    times = [str(trades[0].get('entry_time', start_date or ''))[:16]]
+    times = [str(start_date or '')[:16]]
     vals  = [capital]
     for t in trades:
-        times.append(str(t.get('entry_time', ''))[:16])
+        times.append(str(t.get('exit_time', t.get('entry_time', '')))[:16])
         vals.append(float(t.get('portfolio_capital_after', vals[-1])))
 
     pnl  = final.get('total_pnl_pct', 0)

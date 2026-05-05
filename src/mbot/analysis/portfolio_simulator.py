@@ -92,6 +92,17 @@ def _simulate_portfolio(trades: list, start_capital: float) -> dict:
     if not executed:
         return _empty_portfolio(start_capital)
 
+    # Nach exit_time sortieren und portfolio_capital_after neu berechnen,
+    # damit die Equity-Kurve chronologisch monoton ist (kein Zickzack).
+    executed.sort(key=lambda t: t.get('exit_time', t.get('entry_time', '')))
+    cap = start_capital
+    for t in executed:
+        pnl = cap * t.get('pnl_pct', 0.0) / 100.0
+        cap = max(cap + pnl, 0.0)
+        t['portfolio_pnl_usdt']      = round(pnl, 2)
+        t['portfolio_capital_after'] = round(cap, 2)
+    capital = cap
+
     wins = sum(1 for t in executed if t.get('result') == 'win')
 
     cap_curve = [start_capital] + [t['portfolio_capital_after'] for t in executed]
