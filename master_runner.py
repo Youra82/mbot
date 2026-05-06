@@ -159,14 +159,22 @@ def main():
 
     logging.info(f"Aktive Strategien: {len(active_strategies)} | Max. Positionen: {max_open_positions}")
 
-    # ==========================================================
-    # FALL A: Position-Check fuer alle offenen Trades
-    # ==========================================================
-    active_positions = read_active_positions()
+    active_strategy_keys = {(s['symbol'], s['timeframe']) for s in active_strategies}
 
-    if active_positions:
-        logging.info(f"Offene Trades: {len(active_positions)} -> Pruefe alle Positionen...")
-        for pos in active_positions:
+    # ==========================================================
+    # FALL A: Position-Check nur fuer Positionen in active_strategies
+    # ==========================================================
+    all_positions     = read_active_positions()
+    relevant_positions = [p for p in all_positions
+                          if (p.get('symbol'), p.get('timeframe')) in active_strategy_keys]
+    orphaned           = [p for p in all_positions if p not in relevant_positions]
+
+    for p in orphaned:
+        logging.warning(f"  Ignoriere verwaiste Position (nicht in settings): {p.get('symbol')} ({p.get('timeframe')})")
+
+    if relevant_positions:
+        logging.info(f"Offene Trades: {len(relevant_positions)} -> Pruefe alle Positionen...")
+        for pos in relevant_positions:
             sym = pos.get('symbol')
             tf  = pos.get('timeframe')
             if not sym or not tf:
@@ -179,8 +187,10 @@ def main():
     # ==========================================================
     # FALL B: Signal-Check fuer freie Strategien
     # ==========================================================
-    # Aktuellen State nach den Checks neu einlesen
-    active_positions = read_active_positions()
+    # Aktuellen State nach den Checks neu einlesen (nur relevante)
+    all_positions    = read_active_positions()
+    active_positions = [p for p in all_positions
+                        if (p.get('symbol'), p.get('timeframe')) in active_strategy_keys]
     active_keys      = {(p['symbol'], p['timeframe']) for p in active_positions}
     num_open         = len(active_keys)
 
