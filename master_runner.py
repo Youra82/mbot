@@ -4,9 +4,7 @@ mbot Master Runner (Multi-Position)
 
 Logik:
   1. Startet Auto-Optimizer-Scheduler im Hintergrund (prueft ob Optimierung faellig)
-  2. Liest settings.json -> aktive Symbole
-     - use_auto_optimizer_results=true  -> Symbole aus Config-Dateien in configs/
-     - use_auto_optimizer_results=false -> Symbole aus active_strategies in settings.json
+  2. Liest settings.json -> aktive Symbole aus active_strategies (immer)
   3. Liest active_positions.json -> welche Strategien haben offene Trades?
 
   FALL A: Aktive Positionen vorhanden
@@ -149,16 +147,11 @@ def main():
     max_open_positions = int(live_settings.get('max_open_positions', 10))
 
     if use_auto_optimizer:
-        logging.info("Modus: Auto-Optimizer. Lese Strategien aus Config-Dateien...")
-        active_strategies = load_strategies_from_configs()
-        if not active_strategies:
-            logging.warning("Keine Config-Dateien gefunden. Fallback auf settings.json.")
-            active_strategies = [s for s in live_settings.get('active_strategies', [])
-                                  if isinstance(s, dict) and s.get('active')]
+        logging.info("Modus: Auto-Optimizer (Strategien aus settings.json active_strategies).")
     else:
-        logging.info("Modus: Manuell. Lese Strategien aus settings.json...")
-        active_strategies = [s for s in live_settings.get('active_strategies', [])
-                              if isinstance(s, dict) and s.get('active')]
+        logging.info("Modus: Manuell (Strategien aus settings.json active_strategies).")
+    active_strategies = [s for s in live_settings.get('active_strategies', [])
+                         if isinstance(s, dict) and s.get('active')]
 
     if not active_strategies:
         logging.warning("Keine aktiven Strategien gefunden.")
