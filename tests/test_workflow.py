@@ -18,8 +18,8 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.exchange import Exchange
 from mbot.utils.trade_manager import (
-    read_global_state, write_global_state, clear_global_state,
-    calculate_sl_tp_prices, calculate_contracts, _empty_state,
+    read_active_positions, write_active_positions, claim_position, clear_position,
+    calculate_sl_tp_prices, calculate_contracts,
 )
 from mbot.utils.telegram import send_message
 
@@ -77,8 +77,8 @@ def test_setup():
     except Exception as e:
         pytest.fail(f'Fehler beim Setup-Bereinigen: {e}')
 
-    # Global State zuruecksetzen
-    clear_global_state()
+    # Active Positions zuruecksetzen
+    write_active_positions([])
 
     telegram_config = secrets.get('telegram', {})
 
@@ -102,7 +102,7 @@ def test_setup():
     except Exception as e:
         print(f'FEHLER beim Teardown: {e}')
     finally:
-        clear_global_state()
+        write_active_positions([])
 
 
 # ============================================================
@@ -128,30 +128,22 @@ def test_sl_tp_calculation():
 
 
 def test_global_state_read_write():
-    """Prueft Global State Lesen/Schreiben/Loeschen"""
-    clear_global_state()
-    state = read_global_state()
-    assert state.get('active_symbol') is None
+    """Prueft Active Positions Lesen/Schreiben/Loeschen (Multi-Position-API)"""
+    write_active_positions([])
+    assert read_active_positions() == []
 
-    write_global_state({
-        'active_symbol':    'BTC/USDT:USDT',
-        'active_timeframe': '15m',
-        'active_since':     '2026-01-01T00:00:00Z',
-        'entry_price':      50000.0,
-        'side':             'long',
-        'sl_price':         49950.0,
-        'tp_price':         50500.0,
-        'contracts':        0.04,
-    })
-    state = read_global_state()
-    assert state['active_symbol']    == 'BTC/USDT:USDT'
-    assert state['side']             == 'long'
-    assert state['entry_price']      == 50000.0
+    claim_position('BTC/USDT:USDT', '15m', 'long', 50000.0, 49950.0, 50500.0, 0.04)
+    positions = read_active_positions()
+    assert len(positions) == 1
+    pos = positions[0]
+    assert pos['symbol']      == 'BTC/USDT:USDT'
+    assert pos['timeframe']   == '15m'
+    assert pos['side']        == 'long'
+    assert pos['entry_price'] == 50000.0
 
-    clear_global_state()
-    state = read_global_state()
-    assert state.get('active_symbol') is None
-    print('Global State Lesen/Schreiben/Loeschen: OK')
+    clear_position('BTC/USDT:USDT', '15m')
+    assert read_active_positions() == []
+    print('Active Positions Lesen/Schreiben/Loeschen: OK')
 
 
 def test_contracts_calculation():
