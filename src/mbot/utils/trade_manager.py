@@ -355,21 +355,50 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
 # Positions-Check-Funktion: Check-Modus
 # ============================================================
 
+# ============================================================
+# Housekeeper
+# ============================================================
+
+def housekeeper_routine(exchange, symbol: str, logger: logging.Logger) -> bool:
+    """Storniert alle verbleibenden Orders und schliesst verwaiste Positionen.
+    Wird aufgerufen wenn keine offene Position mehr existiert."""
+    try:
+        logger.info(f"Housekeeper: Starte Aufraeumroutine fuer {symbol}...")
+        exchange.cancel_all_orders_for_symbol(symbol)
+        time.sleep(1)
+
+        position = exchange.fetch_open_positions(symbol)
+        if position:
+            pos_info = position[0]
+            close_side = 'sell' if pos_info['side'] == 'long' else 'buy'
+            logger.warning(f"Housekeeper: Verwaiste Position ({pos_info['side']}) — schliesse...")
+            exchange.place_market_order(symbol, close_side, float(pos_info['contracts']), reduce=True)
+            time.sleep(3)
+
+        if exchange.fetch_open_positions(symbol):
+            logger.error("Housekeeper: Position konnte nicht geschlossen werden!")
+        else:
+            logger.info(f"Housekeeper: {symbol} ist sauber.")
+        return True
+    except Exception as e:
+        logger.error(f"Housekeeper-Fehler: {e}", exc_info=True)
+        return False
+
+
 def check_position_status(exchange, symbol: str, timeframe: str,
                            telegram_config: dict, logger: logging.Logger):
     """
     Prueft ob die aktive Position noch offen ist.
-    Falls nicht mehr offen: Position aus State entfernen, Telegram-Nachricht senden.
+    Falls nicht mehr offen: Housekeeper ausfuehren (loescht auch Ghost-Trigger),
+    dann Position aus State entfernen und Telegram-Nachricht senden.
     """
-    pos = read_position(symbol, timeframe)
-
-    if pos is None:
-        logger.debug(f"check_position_status: Keine aktive Position fuer {symbol} ({timeframe}).")
-        return
-
+    pos       = read_position(symbol, timeframe)
     positions = exchange.fetch_open_positions(symbol)
 
     if positions:
+        if pos is None:
+            logger.debug(f"check_position_status: Keine aktive Position fuer {symbol} ({timeframe}).")
+            return
         p        = positions[0]
         pos_side = p.get('side', '?')
         unr_pnl  = p.get('unrealizedPnl', 0.0)
@@ -380,14 +409,15 @@ def check_position_status(exchange, symbol: str, timeframe: str,
         )
         return
 
-    # Position nicht mehr offen -> TP oder SL wurde getroffen
-    logger.info(f"Position fuer {symbol} wurde geschlossen (TP oder SL getroffen).")
+    # Keine offene Position auf der Exchange -> Ghost-Trigger und verwaiste Orders bereinigen
+    housekeeper_routine(exchange, symbol, logger)
 
-    try:
-        exchange.cancel_all_orders_for_symbol(symbol)
-        logger.info(f"Verbleibende Orders fuer {symbol} storniert.")
-    except Exception as e:
-        logger.warning(f"Fehler beim Stornieren verbleibender Orders: {e}")
+    if pos is None:
+        logger.debug(f"check_position_status: Keine aktive Position fuer {symbol} ({timeframe}).")
+        return
+
+    # Getrackte Position wurde geschlossen -> Telegram + State bereinigen
+    logger.info(f"Position fuer {symbol} wurde geschlossen (TP oder SL getroffen).")
 
     entry_p  = pos.get('entry_price', '?')
     sl_p     = pos.get('sl_price', '?')

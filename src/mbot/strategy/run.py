@@ -33,6 +33,7 @@ from mbot.utils.trade_manager import (
     is_strategy_free,
     execute_signal_trade,
     check_position_status,
+    housekeeper_routine,
     read_position,
     clear_position,
     read_active_positions,
