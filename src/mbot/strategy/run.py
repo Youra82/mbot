@@ -31,6 +31,7 @@ from mbot.utils.telegram import send_message
 from mbot.utils.guardian import guardian_decorator
 from mbot.utils.trade_manager import (
     is_strategy_free,
+    is_candle_cooldown_active,
     execute_signal_trade,
     check_position_status,
     housekeeper_routine,
@@ -123,6 +124,13 @@ def run_for_account(account: dict, telegram_config: dict,
         if not is_strategy_free(symbol, timeframe):
             logger.info(
                 f"Strategie {symbol} ({timeframe}) hat bereits einen offenen Trade - ueberspringe."
+            )
+            return
+
+        # Candle-Cooldown: kein Re-Entry auf derselben Kerze (wie Backtester)
+        if is_candle_cooldown_active(symbol, timeframe):
+            logger.info(
+                f"Candle-Cooldown aktiv: {symbol} ({timeframe}) - kein Re-Entry auf gleicher Kerze."
             )
             return
 

@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import logging
+import math
 import time
 import ccxt
 from datetime import datetime, timezone
@@ -23,10 +24,70 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.telegram import send_message
 
-ACTIVE_POSITIONS_PATH = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'active_positions.json')
+ACTIVE_POSITIONS_PATH  = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'active_positions.json')
+CANDLE_COOLDOWNS_PATH  = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'candle_cooldowns.json')
 # Legacy-Pfad fuer Migration
-_LEGACY_STATE_PATH    = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
-MIN_NOTIONAL_USDT     = 5.0
+_LEGACY_STATE_PATH     = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'global_state.json')
+MIN_NOTIONAL_USDT      = 5.0
+
+# Timeframe -> Sekunden
+_TF_SECONDS = {
+    '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '8h': 28800,
+    '12h': 43200, '1d': 86400, '3d': 259200, '1w': 604800,
+}
+
+
+# ============================================================
+# Candle-Cooldown (eine Position pro Kerze)
+# ============================================================
+
+def _read_candle_cooldowns() -> list:
+    if not os.path.exists(CANDLE_COOLDOWNS_PATH):
+        return []
+    try:
+        with open(CANDLE_COOLDOWNS_PATH, 'r') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _write_candle_cooldowns(cooldowns: list):
+    os.makedirs(os.path.dirname(CANDLE_COOLDOWNS_PATH), exist_ok=True)
+    with open(CANDLE_COOLDOWNS_PATH, 'w') as f:
+        json.dump(cooldowns, f, indent=2)
+
+
+def set_candle_cooldown(symbol: str, timeframe: str):
+    """Setzt einen Cooldown bis zum Ende der aktuellen Kerze fuer symbol+timeframe."""
+    tf_secs = _TF_SECONDS.get(timeframe)
+    if tf_secs is None:
+        return
+    now_ts = datetime.now(timezone.utc).timestamp()
+    candle_end_ts = math.ceil(now_ts / tf_secs) * tf_secs
+    blocked_until = datetime.fromtimestamp(candle_end_ts, tz=timezone.utc).isoformat()
+
+    cooldowns = [c for c in _read_candle_cooldowns()
+                 if not (c.get('symbol') == symbol and c.get('timeframe') == timeframe)]
+    cooldowns.append({'symbol': symbol, 'timeframe': timeframe, 'blocked_until': blocked_until})
+    _write_candle_cooldowns(cooldowns)
+    logging.getLogger(__name__).info(
+        f"Candle-Cooldown gesetzt: {symbol} ({timeframe}) gesperrt bis {blocked_until}"
+    )
+
+
+def is_candle_cooldown_active(symbol: str, timeframe: str) -> bool:
+    """True wenn fuer diese Strategie noch kein neuer Entry auf der aktuellen Kerze erlaubt ist."""
+    now = datetime.now(timezone.utc)
+    for c in _read_candle_cooldowns():
+        if c.get('symbol') == symbol and c.get('timeframe') == timeframe:
+            try:
+                blocked_until = datetime.fromisoformat(c['blocked_until'])
+                return now < blocked_until
+            except (KeyError, ValueError):
+                return False
+    return False
 
 
 # ============================================================
@@ -440,3 +501,4 @@ def check_position_status(exchange, symbol: str, timeframe: str,
     send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
 
     clear_position(symbol, timeframe)
+    set_candle_cooldown(symbol, timeframe)
