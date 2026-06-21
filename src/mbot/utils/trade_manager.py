@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from mbot.utils.telegram import send_message
+from mbot.utils.telegram import send_message, send_photo
 
 ACTIVE_POSITIONS_PATH  = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'active_positions.json')
 CANDLE_COOLDOWNS_PATH  = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker', 'candle_cooldowns.json')
@@ -241,12 +241,168 @@ def calculate_contracts(balance_usdt: float, entry_price: float,
 
 
 # ============================================================
+# Chart-Generierung: MERS-Kerzendiagramm mit Entry/SL/TP
+# ============================================================
+
+def _generate_mers_chart_png(df, signal: dict, symbol: str, timeframe: str,
+                              entry_price: float, sl_price: float, tp_price: float,
+                              n_candles: int = 40) -> str:
+    """
+    Zeichnet Kerzendiagramm mit Entry/SL/TP und MERS-Infobox als PNG.
+    Gibt Pfad zur temporaeren Datei zurueck.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+    except ImportError:
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    import pandas as pd
+    display_df = df[['open', 'high', 'low', 'close']].iloc[-n_candles:].reset_index(drop=True)
+    n = len(display_df)
+    if n == 0:
+        return None
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    fig.patch.set_facecolor('#0d1117')
+    ax.set_facecolor('#0d1117')
+
+    opens  = display_df['open'].values
+    highs  = display_df['high'].values
+    lows   = display_df['low'].values
+    closes = display_df['close'].values
+    bar_w  = 0.6
+
+    # 1. Kerzen
+    for i in range(n):
+        o, h, l, c = opens[i], highs[i], lows[i], closes[i]
+        color = '#26a69a' if c >= o else '#ef5350'
+        ax.plot([i, i], [l, h], color=color, linewidth=0.8, zorder=2)
+        body_bot = min(o, c)
+        body_h   = max(abs(c - o), (h - l) * 0.005)
+        ax.add_patch(mpatches.FancyBboxPatch(
+            (i - bar_w / 2, body_bot), bar_w, body_h,
+            boxstyle="square,pad=0", linewidth=0, facecolor=color, zorder=3,
+        ))
+
+    # 2. Y-Limits
+    y_min = float(lows.min())
+    y_max = float(highs.max())
+    for p in filter(None, [entry_price, sl_price, tp_price]):
+        y_min = min(y_min, float(p) * 0.999)
+        y_max = max(y_max, float(p) * 1.001)
+    margin = (y_max - y_min) * 0.14
+    y_lo, y_hi = y_min - margin, y_max + margin
+    ax.set_xlim(-1, n + 1)
+    ax.set_ylim(y_lo, y_hi)
+
+    # 3. Risiko-Zone (SL bis Entry) leicht schattiert
+    side = signal.get('side', 'long')
+    risk_lo = min(sl_price, entry_price)
+    risk_hi = max(sl_price, entry_price)
+    ax.axhspan(risk_lo, risk_hi, color='#ff1744', alpha=0.07, zorder=1)
+
+    # Reward-Zone (Entry bis TP) leicht schattiert
+    reward_lo = min(tp_price, entry_price)
+    reward_hi = max(tp_price, entry_price)
+    ax.axhspan(reward_lo, reward_hi, color='#00c853', alpha=0.07, zorder=1)
+
+    # 4. Trade-Levels als Preis-Tags
+    def _price_tag(price, label, color, lw=1.5, ls='--'):
+        if not (y_lo < price < y_hi):
+            return
+        ax.axhline(price, color=color, linewidth=lw, linestyle=ls, zorder=6)
+        ax.text(n - 0.3, price, f'  {label}: {price:.6g}  ',
+                color='#0d1117', fontsize=8.5, va='center', ha='right',
+                fontweight='bold', zorder=8,
+                bbox=dict(facecolor=color, edgecolor='none', alpha=0.92,
+                          boxstyle='square,pad=0.25'))
+
+    _price_tag(tp_price,    'TP',    '#00c853')
+    _price_tag(entry_price, 'Entry', '#ffd700')
+    _price_tag(sl_price,    'SL',    '#ff1744')
+
+    # 5. MERS-Infobox oben links
+    side_label    = 'LONG' if side == 'long' else 'SHORT'
+    entropy_drop  = signal.get('entropy_drop')
+    energy_rise   = signal.get('energy_rise')
+    regime        = signal.get('regime', 'n/a')
+    sl_dist_pct   = abs(entry_price - sl_price) / entry_price * 100
+    tp_dist_pct   = abs(tp_price - entry_price) / entry_price * 100
+    rr            = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 0
+
+    info_lines = [
+        f"{'LONG ▲' if side == 'long' else 'SHORT ▼'}   R:R 1:{rr:.1f}",
+        f"Regime:  {regime}",
+        f"Entropy: -{entropy_drop*100:.1f}%" if entropy_drop else "Entropy: n/a",
+        f"Energy:  +{energy_rise*100:.1f}%" if energy_rise else "Energy:  n/a",
+        f"ATR:     {signal.get('atr', 0):.6g}",
+    ]
+    ax.text(0.01, 0.98, '\n'.join(info_lines),
+            transform=ax.transAxes, fontsize=8, va='top', ha='left',
+            color='#cccccc', fontfamily='monospace',
+            bbox=dict(facecolor='#1a2332', edgecolor='#2a3a4a',
+                      alpha=0.88, boxstyle='round,pad=0.5'),
+            zorder=9)
+
+    # 6. Styling
+    ax.set_title(
+        f"MBOT  |  {symbol}  {timeframe}  |  {side_label}  |  letzte {n} Kerzen",
+        color='#e0e0e0', fontsize=11, pad=10,
+    )
+    ax.tick_params(colors='#888888', labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_edgecolor('#2a3a4a')
+    ax.set_xticks([])
+    ax.yaxis.tick_right()
+    ax.grid(axis='y', color='#1e2a3a', linewidth=0.4, zorder=0)
+    plt.tight_layout()
+
+    tmp_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'tmp')
+    os.makedirs(tmp_dir, exist_ok=True)
+    ts       = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    sym_safe = symbol.replace('/', '-').replace(':', '-')
+    path     = os.path.join(tmp_dir, f'mers_entry_{sym_safe}_{timeframe}_{ts}.png')
+    fig.savefig(path, dpi=130, bbox_inches='tight', facecolor=fig.get_facecolor())
+    plt.close(fig)
+    return path
+
+
+def _send_mers_chart(df, signal: dict, symbol: str, timeframe: str,
+                     entry_price: float, sl_price: float, tp_price: float,
+                     telegram_config: dict, logger: logging.Logger):
+    """Generiert MERS-Chart-PNG und sendet es via Telegram."""
+    if not telegram_config or not telegram_config.get('bot_token') or not telegram_config.get('chat_id'):
+        return
+    try:
+        path = _generate_mers_chart_png(df, signal, symbol, timeframe,
+                                        entry_price, sl_price, tp_price)
+        if path and os.path.exists(path):
+            side_label = 'LONG' if signal.get('side') == 'long' else 'SHORT'
+            caption = (
+                f"MBOT | {symbol} ({timeframe})\n"
+                f"{side_label} @ {entry_price:.6g}  |  SL: {sl_price:.6g}  |  TP: {tp_price:.6g}"
+            )
+            send_photo(telegram_config.get('bot_token'), telegram_config.get('chat_id'),
+                       path, caption)
+            os.remove(path)
+    except Exception as e:
+        logger.warning(f"MERS-Chart senden fehlgeschlagen: {e}")
+
+
+# ============================================================
 # Haupt-Trading-Funktion: Signal-Modus
 # ============================================================
 
 def execute_signal_trade(exchange, symbol: str, timeframe: str,
                           signal: dict, risk_config: dict,
-                          telegram_config: dict, logger: logging.Logger) -> bool:
+                          telegram_config: dict, logger: logging.Logger,
+                          df=None) -> bool:
     """
     Wird aufgerufen wenn ein Signal erkannt wurde.
     Prueft ob Strategie frei ist, platziert Entry + SL + TP.
@@ -407,6 +563,11 @@ def execute_signal_trade(exchange, symbol: str, timeframe: str,
         f"🔍 Signal:  {signal.get('reason', '')}"
     )
     send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
+
+    # Chart mit Kerzendiagramm und Entry/SL/TP per Telegram senden
+    _send_mers_chart(df, signal, symbol, timeframe, entry_price, sl_price, tp_price,
+                     telegram_config, logger)
+
     logger.info("Trade erfolgreich platziert und Telegram-Nachricht gesendet.")
 
     return True

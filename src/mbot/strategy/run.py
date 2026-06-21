@@ -165,7 +165,8 @@ def run_for_account(account: dict, telegram_config: dict,
         # Trade ausfuehren (SL/TP ATR-basiert aus signal['sl_price'] / signal['tp_price'])
         success = execute_signal_trade(
             exchange, symbol, timeframe, signal,
-            risk_config, telegram_config, logger
+            risk_config, telegram_config, logger,
+            df=df,
         )
 
         if success:
