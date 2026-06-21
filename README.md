@@ -471,6 +471,25 @@ Nützlich z.B. nach einem Bot-Update, um die aktuellen Charts zu erneuern, ohne 
 
 ---
 
+## Chart-Simulation
+
+Aktuellen Kerzendiagramm-Chart mit simulierten Entry/SL/TP-Levels per Telegram senden — **ohne echten Trade**. Zeigt MERS-Infobox (Regime, Entropy, Energy, R:R) und Risiko/Reward-Zonen.
+
+```bash
+# Alle aktiven Strategien aus settings.json
+.venv/bin/python show_chart.py
+
+# Einzelnes Symbol/Timeframe
+.venv/bin/python show_chart.py --symbol SOL/USDT:USDT --timeframe 1h
+
+# Richtung erzwingen (ignoriert MERS-Signal)
+.venv/bin/python show_chart.py --symbol SOL/USDT:USDT --timeframe 1h --side long
+```
+
+Hat das Symbol ein aktives MERS-Signal, werden echte Entry/SL/TP-Werte verwendet. Andernfalls wird der letzte Schlusskurs mit ATR-basiertem SL/TP simuliert.
+
+---
+
 ## Master Runner manuell ausführen
 
 ```bash
