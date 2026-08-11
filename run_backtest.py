@@ -16,7 +16,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.exchange import Exchange
-from mbot.analysis.backtester import load_data, run_backtest
+from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -89,10 +89,20 @@ def main():
             print(f'  {RED}Keine Daten. Ueberspringe.{NC}')
             continue
 
+        fine_data = None
+        fine_tf = FINE_TF_MAP.get(tf)
+        if fine_tf:
+            try:
+                fine_data = load_data(exchange, symbol, fine_tf, start_date, end_date)
+                if fine_data is None or fine_data.empty:
+                    fine_data = None
+            except Exception:
+                fine_data = None
+
         # risk_per_trade_pct kommt aus sig_cfg (Optuna-optimiert, in Config gespeichert)
         risk_config = {'risk_per_trade_pct': sig_cfg.get('risk_per_trade_pct', 1.0)}
         result = run_backtest(df, sig_cfg, risk_config,
-                              start_capital=args.capital, symbol=symbol)
+                              start_capital=args.capital, symbol=symbol, fine_data=fine_data)
         result['timeframe'] = tf
 
         wr   = result.get('win_rate', 0.0)

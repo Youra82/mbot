@@ -38,6 +38,37 @@ from mbot.strategy.mdef_analysis import (
     calc_multitf_alignment,
 )
 
+# Feinere Timeframe je Strategie-Timeframe fuer die SL/TP-Intrabar-Reihenfolgen-
+# Aufloesung (oraclebot-Muster).
+FINE_TF_MAP = {
+    '5m': '1m', '15m': '1m', '30m': '1m',
+    '1h': '5m', '2h': '5m',
+    '4h': '15m', '6h': '15m',
+    '1d': '1h',
+}
+
+
+def _resolve_ambiguous_exit(fine_slice, sl_price, tp_price, side):
+    """
+    Wenn eine Coarse-Kerze SOWOHL SL als auch TP beruehrt haette, per feineren
+    Kerzen die tatsaechliche Reihenfolge aufloesen, statt SL blind zu
+    bevorzugen (bisherige, als "konservativ" dokumentierte Konvention).
+    """
+    if fine_slice is None or fine_slice.empty:
+        return None, None
+    for _, bar in fine_slice.iterrows():
+        if side == 'long':
+            if bar['low'] <= sl_price:
+                return sl_price, 'loss'
+            if bar['high'] >= tp_price:
+                return tp_price, 'win'
+        else:
+            if bar['high'] >= sl_price:
+                return sl_price, 'loss'
+            if bar['low'] <= tp_price:
+                return tp_price, 'win'
+    return None, None
+
 logger = logging.getLogger(__name__)
 
 # Mindest-Kerzen bevor erstes Signal berechnet werden kann
@@ -92,7 +123,7 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
 
 def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                   start_capital: float = 1000.0, symbol: str = '',
-                  trial=None) -> dict:
+                  trial=None, fine_data: pd.DataFrame = None) -> dict:
     """
     Fuehrt den MERS-Backtest durch.
 
@@ -144,6 +175,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     trades   = []
     in_trade = False
     trade    = {}
+    coarse_duration = df.index[1] - df.index[0] if len(df.index) >= 2 else None
 
     total_steps      = len(df) - MIN_CANDLES
     checkpoint_every = max(1, total_steps // 8)  # 8 Checkpoints: 12.5/25/.../100%
@@ -174,10 +206,19 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             hit_tp = (side == 'long'  and hi  >= tp_p) or (side == 'short' and lo <= tp_p)
 
             if hit_sl or hit_tp:
-                # Bei gleicher Kerze: SL-Prioritaet (konservativ)
                 if hit_sl and hit_tp:
-                    result = 'loss'
-                    exit_p = sl_p
+                    # Beide Level in derselben Kerze moeglich -- Reihenfolge unklar
+                    # ohne feinere Daten. Per fine_data (falls vorhanden) real
+                    # aufloesen statt SL blind zu bevorzugen (oraclebot-Muster).
+                    exit_p, result = None, None
+                    if fine_data is not None and coarse_duration is not None:
+                        idx_ts = df.index[i]
+                        fine_slice = fine_data.loc[
+                            (fine_data.index >= idx_ts) & (fine_data.index < idx_ts + coarse_duration)
+                        ]
+                        exit_p, result = _resolve_ambiguous_exit(fine_slice, sl_p, tp_p, side)
+                    if exit_p is None:
+                        result, exit_p = 'loss', sl_p  # Fallback: alte SL-first-Konvention
                 elif hit_tp:
                     result = 'win'
                     exit_p = tp_p

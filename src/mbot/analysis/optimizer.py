@@ -34,7 +34,7 @@ from datetime import datetime as _dt
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from mbot.analysis.backtester import load_data, run_backtest
+from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
 from mbot.utils.exchange import Exchange
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Globale State fuer Optuna-Objective
 HISTORICAL_DATA         = None
+FINE_DATA               = None  # feinere Kerzen fuer SL/TP-Intrabar-Aufloesung (oraclebot-Muster)
 CURRENT_SYMBOL          = None
 CURRENT_TIMEFRAME       = None
 RISK_CONFIG             = {}
@@ -107,6 +108,7 @@ def objective(trial):
         start_capital=START_CAPITAL,
         symbol=CURRENT_SYMBOL,
         trial=trial,
+        fine_data=FINE_DATA,
     )
 
     pnl      = result.get('total_pnl_pct', -9999.0)
@@ -129,7 +131,7 @@ def objective(trial):
 
 
 def main():
-    global HISTORICAL_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
+    global HISTORICAL_DATA, FINE_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
     global START_CAPITAL
     global MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
     global MIN_PNL_CONSTRAINT, MIN_TRADES_CONSTRAINT, OPTIM_MODE
@@ -222,6 +224,20 @@ def main():
 
         print(f"  {len(HISTORICAL_DATA)} Kerzen geladen.")
 
+        # Feinere Kerzen fuer SL/TP-Intrabar-Reihenfolgen-Aufloesung (oraclebot-Muster).
+        FINE_DATA = None
+        fine_tf = FINE_TF_MAP.get(CURRENT_TIMEFRAME)
+        if fine_tf:
+            try:
+                FINE_DATA = load_data(exchange, CURRENT_SYMBOL, fine_tf, args.start_date, args.end_date)
+                if FINE_DATA is None or FINE_DATA.empty:
+                    FINE_DATA = None
+                else:
+                    print(f"  Fein-Daten geladen: {fine_tf} ({len(FINE_DATA)} Kerzen).")
+            except Exception as _e:
+                print(f"  Warnung: Fein-Daten-Abruf ({fine_tf}) fehlgeschlagen ({_e}).")
+                FINE_DATA = None
+
         db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
         storage_url = f"sqlite:///{db_file}?timeout=60"
         study_name  = f"mers_{safe_name}_{OPTIM_MODE}_mt{MIN_TRADES_CONSTRAINT}_lv"
@@ -299,6 +315,7 @@ def main():
         final_result = run_backtest(
             HISTORICAL_DATA, best_signal_config, RISK_CONFIG,
             start_capital=START_CAPITAL, symbol=CURRENT_SYMBOL,
+            fine_data=FINE_DATA,
         )
 
         # Nur speichern wenn besser als bestehende Config

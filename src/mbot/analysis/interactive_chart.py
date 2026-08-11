@@ -105,16 +105,26 @@ def _generate_chart(exchange, symbol: str, timeframe: str,
         print(f'{RED}Fehler: plotly nicht installiert. Bitte: pip install plotly{NC}')
         return ''
 
-    from mbot.analysis.backtester import load_data, run_backtest
+    from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
 
     df = load_data(exchange, symbol, timeframe, start_date, end_date)
     if df is None or df.empty:
         print(f'INFO: {RED}Keine Daten verfuegbar fuer {symbol} ({timeframe}).{NC}')
         return ''
 
+    fine_data = None
+    fine_tf = FINE_TF_MAP.get(timeframe)
+    if fine_tf:
+        try:
+            fine_data = load_data(exchange, symbol, fine_tf, start_date, end_date)
+            if fine_data is None or fine_data.empty:
+                fine_data = None
+        except Exception:
+            fine_data = None
+
     print(f'INFO: Fuehre Backtest durch...')
     result = run_backtest(df, signal_config, risk_config,
-                          start_capital=start_capital, symbol=symbol)
+                          start_capital=start_capital, symbol=symbol, fine_data=fine_data)
     trades = result.get('trades', [])
 
     # Equity-Kurve
