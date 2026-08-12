@@ -82,6 +82,13 @@ def objective(trial):
     regime_window     = trial.suggest_int('regime_window',     10, 40)
     allow_range_trade = trial.suggest_int('allow_range_trade',  0,  1)
 
+    # --- Volumen-Bestaetigung (Layer 5) ---
+    # Herkunft: Live-Trade-Analyse zeigte ueberdurchschnittliches Volumen als
+    # Win/Loss-Diskriminator, an 500 Backtest-Trades validiert. Optuna
+    # entscheidet selbst pro Config, ob sich der Filter lohnt.
+    use_volume_filter = trial.suggest_int('use_volume_filter', 0, 1)
+    min_vol_ratio     = trial.suggest_float('min_vol_ratio', 0.5, 2.5, step=0.1)
+
     # --- Risiko ---
     leverage         = trial.suggest_int(  'leverage',          5,   20)
     risk_per_trade   = trial.suggest_float('risk_per_trade_pct', 0.5, 3.0, step=0.25)
@@ -101,6 +108,8 @@ def objective(trial):
         'regime_window':        regime_window,
         'allow_range_trade':    allow_range_trade,
         'use_multitf_filter':   0,
+        'use_volume_filter':    use_volume_filter,
+        'min_vol_ratio':        round(min_vol_ratio, 2),
     }
 
     # CRITICAL: Objective sieht NUR die Trainingsdaten (erste 70%) -- die OOS-Periode
@@ -319,6 +328,8 @@ def main():
             'regime_window':        best_params['regime_window'],
             'allow_range_trade':    best_params['allow_range_trade'],
             'use_multitf_filter':   0,
+            'use_volume_filter':    best_params['use_volume_filter'],
+            'min_vol_ratio':        round(best_params['min_vol_ratio'], 2),
         }
 
         # In-Sample-Referenz (Trainingsdaten, dasselbe Fenster wie die Objective-Funktion)
@@ -417,6 +428,8 @@ def main():
               f"regime_window={best_params['regime_window']} "
               f"allow_range={bool(best_params['allow_range_trade'])}")
         print(f"       multitf_filter=False (deaktiviert)")
+        print(f"       volume_filter={bool(best_params['use_volume_filter'])} "
+              f"min_vol_ratio={best_params['min_vol_ratio']:.2f}")
 
         run_results['saved'].append({
             'symbol':      CURRENT_SYMBOL,

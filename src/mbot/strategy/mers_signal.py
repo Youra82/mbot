@@ -107,6 +107,13 @@ def get_mers_signal(df: pd.DataFrame, signal_config: dict) -> dict:
     meso_tf_mult       = int(signal_config.get('meso_tf_mult',           4))
     macro_tf_mult      = int(signal_config.get('macro_tf_mult',          16))
 
+    # --- Volumen-Bestaetigung (Layer 5) ---
+    # Herkunft: Live-Trade-Analyse (75 Trades, dann an 500 Backtest-Trades
+    # validiert) zeigte, dass Entries mit ueberdurchschnittlichem Volumen
+    # deutlich besser performen als Entries in ruhigen Phasen.
+    use_volume_filter = bool(int(signal_config.get('use_volume_filter', 0)))
+    min_vol_ratio      = float(signal_config.get('min_vol_ratio',        1.0))
+
     # --- Mindest-Kerzen ---
     min_required = (entropy_window + max(entropy_lookback, energy_lookback)
                     + atr_period + max(regime_window, 5) + 5)
@@ -207,6 +214,18 @@ def get_mers_signal(df: pd.DataFrame, signal_config: dict) -> dict:
             return _no_signal('MTF zeigt Long, Signal Short: verworfen', regime=regime, mtf=mtf)
 
     # -------------------------------------------------------
+    # LAYER 5: Volumen-Bestaetigung
+    # -------------------------------------------------------
+    vol_ratio = float(df['volume'].iloc[-1] / df['volume'].rolling(20).mean().iloc[-1])
+
+    if use_volume_filter:
+        if np.isnan(vol_ratio) or vol_ratio < min_vol_ratio:
+            return _no_signal(
+                f'Volumen zu niedrig (ratio={vol_ratio:.2f} < {min_vol_ratio})',
+                regime=regime, mtf=mtf
+            )
+
+    # -------------------------------------------------------
     # SL/TP berechnen (ATR-basiert)
     # -------------------------------------------------------
     if side == 'long':
@@ -231,6 +250,8 @@ def get_mers_signal(df: pd.DataFrame, signal_config: dict) -> dict:
         reason_parts.append(
             f"MTF={int(mtf['micro_trend'])}/{int(mtf['meso_trend'])}/{int(mtf['macro_trend'])}"
         )
+    if use_volume_filter:
+        reason_parts.append(f"Vol-Ratio={vol_ratio:.2f}")
 
     return {
         'side':             side,
@@ -250,6 +271,7 @@ def get_mers_signal(df: pd.DataFrame, signal_config: dict) -> dict:
         'mtf_meso':         mtf['meso_trend'],
         'mtf_macro':        mtf['macro_trend'],
         'mtf_aligned':      mtf['aligned'],
+        'vol_ratio':        round(vol_ratio, 4),
         'reason':           ' | '.join(reason_parts),
     }
 
@@ -310,5 +332,6 @@ def _no_signal(reason: str, regime: str = 'n/a', mtf: dict = None) -> dict:
         'mtf_meso':         mtf['meso_trend'],
         'mtf_macro':        mtf['macro_trend'],
         'mtf_aligned':      mtf['aligned'],
+        'vol_ratio':        None,
         'reason':           reason,
     }

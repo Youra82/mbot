@@ -293,6 +293,8 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     use_multitf_filter = bool(int(signal_config.get('use_multitf_filter', 0)))
     meso_tf_mult      = int(signal_config.get('meso_tf_mult',            4))
     macro_tf_mult     = int(signal_config.get('macro_tf_mult',           16))
+    use_volume_filter = bool(int(signal_config.get('use_volume_filter',   0)))
+    min_vol_ratio     = float(signal_config.get('min_vol_ratio',          1.0))
 
     if len(df) < MIN_CANDLES + 1:
         return _empty_result(symbol, start_capital)
@@ -308,6 +310,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     energy   = calc_energy(velocity)
     atr_ser  = calc_atr(df, period=atr_period)
     regime_ser = _precompute_regime_series(velocity, acc, regime_window)
+    vol_ratio_ser = df['volume'] / df['volume'].rolling(20).mean()
 
     capital  = start_capital
     trades   = []
@@ -463,6 +466,12 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             if side == 'long'  and mtf['direction'] < 0:
                 continue
             if side == 'short' and mtf['direction'] > 0:
+                continue
+
+        # --- Layer 5: Volumen-Bestaetigung (optional) ---
+        if use_volume_filter:
+            vol_ratio = vol_ratio_ser.iloc[i]
+            if np.isnan(vol_ratio) or vol_ratio < min_vol_ratio:
                 continue
 
         # --- Slippage auf Entry-Preis (Market Order Realismus) ---
