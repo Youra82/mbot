@@ -174,6 +174,27 @@ class LazyFineData:
         return combined.loc[(combined.index >= start_ts) & (combined.index < end_ts)]
 
 
+def _precompute_regime_series(velocity: pd.Series, acc: pd.Series, window: int) -> pd.Series:
+    """
+    Vektorisierte Vorberechnung von classify_phase_regime() fuer jede Kerze
+    (rolling mean/std statt Python-Loop mit wiederholten iloc-Slices+Funktions-
+    aufrufen -- vermeidet O(N^2), analog zu entropy/velocity/acc/atr_ser oben).
+    Mathematik identisch zu classify_phase_regime() in mdef_analysis.py.
+    """
+    eps = 1e-10
+    vel_mean = velocity.rolling(window, min_periods=1).mean()
+    vel_std  = velocity.rolling(window, min_periods=1).std()
+    acc_std  = acc.rolling(window, min_periods=1).std()
+
+    chaos_ratio     = acc_std / (vel_std + eps)
+    vel_consistency = vel_mean.abs() / (vel_std + eps)
+
+    regime = pd.Series('range', index=velocity.index, dtype=object)
+    regime[vel_consistency > 0.35] = 'trend'
+    regime[chaos_ratio > 1.8] = 'chaos'  # Chaos hat Prioritaet (wie im Original)
+    return regime
+
+
 def _get_fine_slice(fine_data, start_ts, end_ts):
     """Liest ein Fein-Daten-Fenster aus -- akzeptiert sowohl einen bereits
     komplett geladenen DataFrame (alte, eager Nutzung) als auch ein
@@ -286,6 +307,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
     acc      = calc_acceleration(velocity)
     energy   = calc_energy(velocity)
     atr_ser  = calc_atr(df, period=atr_period)
+    regime_ser = _precompute_regime_series(velocity, acc, regime_window)
 
     capital  = start_capital
     trades   = []
@@ -400,10 +422,9 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             continue
 
         # --- Layer 2: Regime-Check (optional) ---
+        # regime wird immer nachgeschlagen (fuer Trade-Logging), Filter nur wenn aktiv.
+        regime = regime_ser.iloc[i]
         if use_regime_filter:
-            vel_win = velocity.iloc[max(0, i - regime_window):i + 1]
-            acc_win = acc.iloc[max(0, i - regime_window):i + 1]
-            regime  = classify_phase_regime(vel_win, acc_win, window=regime_window)
             if regime == 'chaos':
                 continue
             if regime == 'range' and not allow_range_trade:
@@ -476,6 +497,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
             'sl_price':    sl_price_abs,
             'tp_price':    tp_price_abs,
             'atr':         round(cur_atr, 6),
+            'regime':      regime,
         }
 
     # --- Statistiken ---

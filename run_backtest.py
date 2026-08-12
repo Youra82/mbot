@@ -21,12 +21,25 @@ from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyF
 logging.basicConfig(level=logging.WARNING)
 
 CONFIGS_DIR = os.path.join(PROJECT_ROOT, 'src', 'mbot', 'strategy', 'configs')
+RESULTS_DIR = os.path.join(PROJECT_ROOT, 'artifacts', 'results')
 
 GREEN  = '\033[0;32m'
 YELLOW = '\033[1;33m'
 RED    = '\033[0;31m'
 CYAN   = '\033[0;36m'
 NC     = '\033[0m'
+
+
+def _persist_trades(symbol: str, tf: str, trades: list) -> None:
+    """Schreibt Trades nach artifacts/results/backtest_{SAFE}_{TF}.json
+    (Basis fuer die Analyse-Skripte unter src/mbot/analysis/)."""
+    if not trades:
+        return
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    safe = symbol.replace('/', '').replace(':', '')
+    path = os.path.join(RESULTS_DIR, f'backtest_{safe}_{tf}.json')
+    with open(path, 'w') as f:
+        json.dump({'market': symbol, 'timeframe': tf, 'trades': trades}, f, indent=2)
 
 
 def main():
@@ -99,6 +112,7 @@ def main():
         result = run_backtest(df, sig_cfg, risk_config,
                               start_capital=args.capital, symbol=symbol, fine_data=fine_data)
         result['timeframe'] = tf
+        _persist_trades(symbol, tf, result.get('trades', []))
 
         wr   = result.get('win_rate', 0.0)
         pnl  = result.get('total_pnl_pct', 0.0)

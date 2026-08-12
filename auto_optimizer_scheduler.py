@@ -161,7 +161,10 @@ def main():
     send_tg    = opt_settings.get('send_telegram_on_completion', False)
     capital    = float(opt_settings.get('start_capital', 1000))
     max_dd     = float(opt_settings.get('constraints', {}).get('max_drawdown_pct', 30))
-    start_date = opt_settings.get('start_date', 'auto')
+    # backtest_lookback_weeks (rollend) hat Vorrang -- dann ueberlassen wir die
+    # Datumsberechnung run_portfolio_optimizer.py selbst (kein --start-date hier).
+    lookback_weeks = opt_settings.get('backtest_lookback_weeks')
+    start_date = None if lookback_weeks else opt_settings.get('start_date', 'auto')
     end_date   = opt_settings.get('end_date',   'auto')
     start_time = datetime.now()
 

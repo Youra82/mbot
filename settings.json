@@ -45,6 +45,15 @@
             }
         ]
     },
+    "scan_settings": {
+        "_note": "Fester Pool fuer run_pipeline.sh: bei Coin/TF-Prompts einfach Enter druecken, dann wird dieser Pool (kartesisches Produkt Coins x Timeframes) optimiert, statt nur die aktuell aktiven Strategien.",
+        "symbols": [
+            "AAVE/USDT:USDT", "ADA/USDT:USDT", "ARB/USDT:USDT", "AVAX/USDT:USDT",
+            "BNB/USDT:USDT", "BTC/USDT:USDT", "DOGE/USDT:USDT", "ETH/USDT:USDT",
+            "LTC/USDT:USDT", "SOL/USDT:USDT", "XRP/USDT:USDT"
+        ],
+        "timeframes": ["15m", "30m", "1h", "2h", "4h", "6h", "1d"]
+    },
     "optimization_settings": {
         "enabled": true,
         "schedule": {
@@ -59,6 +68,8 @@
             }
         },
         "start_capital": 30,
+        "backtest_lookback_weeks": 26,
+        "_backtest_lookback_weeks_note": "Rollendes Fenster (heute - N Wochen) fuer die Portfolio-Auswahl -- hat Vorrang vor start_date. Optimalen Wert per Walk-Forward Lookback-Analyse (run_analysis.sh Modus 1) ermitteln.",
         "start_date": "2025-01-01",
         "end_date": "auto",
         "constraints": {

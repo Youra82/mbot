@@ -42,7 +42,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Globale State fuer Optuna-Objective
-HISTORICAL_DATA         = None
+HISTORICAL_DATA         = None  # volle Daten (nur fuer Referenz/Logging)
+TRAIN_DATA              = None  # erste 70% -- einzige Daten, die die Objective-Funktion sieht
+OOS_DATA                = None  # letzte 30% -- nie waehrend der Optimierung verwendet
 FINE_DATA               = None  # feinere Kerzen fuer SL/TP-Intrabar-Aufloesung (oraclebot-Muster)
 CURRENT_SYMBOL          = None
 CURRENT_TIMEFRAME       = None
@@ -101,8 +103,11 @@ def objective(trial):
         'use_multitf_filter':   0,
     }
 
+    # CRITICAL: Objective sieht NUR die Trainingsdaten (erste 70%) -- die OOS-Periode
+    # (letzte 30%) darf hier nie einfliessen, sonst optimiert Optuna auf Daten, die
+    # eigentlich die Validierung sein sollen (Hindsight-Bias).
     result = run_backtest(
-        HISTORICAL_DATA,
+        TRAIN_DATA,
         signal_config,
         RISK_CONFIG,
         start_capital=START_CAPITAL,
@@ -131,7 +136,7 @@ def objective(trial):
 
 
 def main():
-    global HISTORICAL_DATA, FINE_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
+    global HISTORICAL_DATA, TRAIN_DATA, OOS_DATA, FINE_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, RISK_CONFIG
     global START_CAPITAL
     global MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT
     global MIN_PNL_CONSTRAINT, MIN_TRADES_CONSTRAINT, OPTIM_MODE
@@ -157,6 +162,8 @@ def main():
                         help='Minimale Anzahl Trades fuer gueltigen Trial (z.B. 20)')
     parser.add_argument('--mode',          type=str,   default='strict',
                         choices=['strict', 'best_profit'])
+    parser.add_argument('--oos_split',     type=float, default=0.7,
+                        help='Anteil der Daten fuer Training/Optimierung (Rest = Out-of-Sample, nie optimiert). Default 0.7 = 70/30.')
     args = parser.parse_args()
 
     MAX_DRAWDOWN_CONSTRAINT = args.max_drawdown / 100.0
@@ -223,6 +230,15 @@ def main():
             continue
 
         print(f"  {len(HISTORICAL_DATA)} Kerzen geladen.")
+
+        # 70/30 Split: Optuna sieht NUR TRAIN_DATA. OOS_DATA (letzte 30%) wird erst
+        # nach der Optimierung EINMAL mit den gewonnenen Parametern gegengeprueft --
+        # damit zeigt sich Overfitting auf den Trainingszeitraum sofort, statt erst live.
+        split_idx = int(len(HISTORICAL_DATA) * args.oos_split)
+        TRAIN_DATA = HISTORICAL_DATA.iloc[:split_idx].copy()
+        OOS_DATA   = HISTORICAL_DATA.iloc[split_idx:].copy()
+        print(f"  Training:  {len(TRAIN_DATA)} Kerzen ({str(TRAIN_DATA.index[0])[:10]} -> {str(TRAIN_DATA.index[-1])[:10]})")
+        print(f"  OOS:       {len(OOS_DATA)} Kerzen ({str(OOS_DATA.index[0])[:10]} -> {str(OOS_DATA.index[-1])[:10]}) -- nie optimiert")
 
         # Feinere Kerzen fuer SL/TP-Intrabar-Reihenfolgen-Aufloesung (oraclebot-Muster).
         # On-Demand (lazy): nur die Tage mit echter SL/TP-Ambiguitaet werden abgerufen.
@@ -305,11 +321,29 @@ def main():
             'use_multitf_filter':   0,
         }
 
+        # In-Sample-Referenz (Trainingsdaten, dasselbe Fenster wie die Objective-Funktion)
         final_result = run_backtest(
-            HISTORICAL_DATA, best_signal_config, RISK_CONFIG,
+            TRAIN_DATA, best_signal_config, RISK_CONFIG,
             start_capital=START_CAPITAL, symbol=CURRENT_SYMBOL,
             fine_data=FINE_DATA,
         )
+
+        # Out-of-Sample-Test: EINMALIGER Lauf auf den letzten 30%, die Optuna nie gesehen hat.
+        # Zeigt, ob der Edge real ist oder nur auf die Trainingsperiode ueberoptimiert.
+        oos_result = run_backtest(
+            OOS_DATA, best_signal_config, RISK_CONFIG,
+            start_capital=START_CAPITAL, symbol=CURRENT_SYMBOL,
+            fine_data=FINE_DATA,
+        )
+        print(f"\n  In-Sample (Training) : PnL {final_result.get('total_pnl_pct', 0.0):+.2f}% | "
+              f"WR {final_result.get('win_rate', 0.0):.1f}% | Trades {final_result.get('total_trades', 0)}")
+        print(f"  Out-of-Sample (30%)  : PnL {oos_result.get('total_pnl_pct', 0.0):+.2f}% | "
+              f"WR {oos_result.get('win_rate', 0.0):.1f}% | Trades {oos_result.get('total_trades', 0)}")
+        if oos_result.get('total_trades', 0) < 5:
+            print(f"  {'-'*60}\n  WARNUNG: Nur {oos_result.get('total_trades', 0)} OOS-Trades -- Aussage wenig belastbar.")
+        elif oos_result.get('total_pnl_pct', 0.0) < 0 <= final_result.get('total_pnl_pct', 0.0):
+            print(f"  {'-'*60}\n  WARNUNG: In-Sample profitabel, Out-of-Sample verlustreich -- "
+                  f"deutet auf Overfitting auf den Trainingszeitraum hin.")
 
         # Nur speichern wenn besser als bestehende Config
         config_file  = os.path.join(configs_dir, f'config_{safe_name}_mers.json')
@@ -349,6 +383,16 @@ def main():
                 'start_date':    args.start_date,
                 'end_date':      args.end_date,
                 'fee_rate_pct':  RISK_CONFIG.get('fee_rate_pct', 0.06),
+                'train_start':   str(TRAIN_DATA.index[0])[:10],
+                'train_end':     str(TRAIN_DATA.index[-1])[:10],
+                'oos_split':     args.oos_split,
+                'oos_start':     str(OOS_DATA.index[0])[:10],
+                'oos_end':       str(OOS_DATA.index[-1])[:10],
+                'oos_pnl_pct':   round(oos_result.get('total_pnl_pct', 0.0), 2),
+                'oos_win_rate':  oos_result.get('win_rate', 0.0),
+                'oos_trades':    oos_result.get('total_trades', 0),
+                'oos_max_drawdown': oos_result.get('max_drawdown', 0.0),
+                'oos_note':      '30% (letzter Teil) -- nie waehrend der Optuna-Optimierung verwendet',
             },
         }
 
@@ -378,6 +422,8 @@ def main():
             'symbol':      CURRENT_SYMBOL,
             'timeframe':   CURRENT_TIMEFRAME,
             'pnl_pct':     round(best_pnl, 2),
+            'oos_pnl_pct': round(oos_result.get('total_pnl_pct', 0.0), 2),
+            'oos_trades':  oos_result.get('total_trades', 0),
             'config_file': f'config_{safe_name}_mers.json',
         })
 

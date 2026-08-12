@@ -66,9 +66,18 @@ tfs_raw   = os.environ.get('MBOT_OVERRIDE_TFS',   '').strip()
 try:
     with open('settings.json') as f:
         s = json.load(f)
-    active     = s.get('live_trading_settings', {}).get('active_strategies', [])
-    auto_coins = list(dict.fromkeys(x['symbol']    for x in active if x.get('symbol')))
-    auto_tfs   = list(dict.fromkeys(x['timeframe'] for x in active if x.get('timeframe')))
+    scan_cfg    = s.get('scan_settings', {})
+    scan_syms   = scan_cfg.get('symbols', [])
+    scan_tfs    = scan_cfg.get('timeframes', [])
+    if scan_syms and scan_tfs:
+        # Fester Pool aus settings.json hat Vorrang -- deckt mehr ab als nur die
+        # aktuell live laufenden Strategien.
+        auto_coins = scan_syms
+        auto_tfs   = scan_tfs
+    else:
+        active     = s.get('live_trading_settings', {}).get('active_strategies', [])
+        auto_coins = list(dict.fromkeys(x['symbol']    for x in active if x.get('symbol')))
+        auto_tfs   = list(dict.fromkeys(x['timeframe'] for x in active if x.get('timeframe')))
 except Exception:
     auto_coins = ['BTC/USDT:USDT']
     auto_tfs   = ['6h']

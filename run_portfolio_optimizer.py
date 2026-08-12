@@ -358,9 +358,18 @@ def main() -> int:
     capital       = args.capital or float(opt.get('start_capital', 100))
     max_dd        = args.max_dd
     end_date      = args.end_date   or date.today().strftime('%Y-%m-%d')
-    start_date    = args.start_date or (
-        date.today() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-    ).strftime('%Y-%m-%d')
+    # Startdatum-Fallback: backtest_lookback_weeks (rollend, hat Vorrang) ->
+    # start_date (fixes Legacy-Datum) -> DEFAULT_LOOKBACK_DAYS.
+    if args.start_date:
+        start_date = args.start_date
+    else:
+        lookback_weeks = opt.get('backtest_lookback_weeks')
+        if lookback_weeks:
+            start_date = (date.today() - timedelta(weeks=int(lookback_weeks))).strftime('%Y-%m-%d')
+        elif opt.get('start_date') and opt['start_date'] != 'auto':
+            start_date = opt['start_date']
+        else:
+            start_date = (date.today() - timedelta(days=DEFAULT_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
     max_positions = int(settings.get('live_trading_settings', {}).get('max_open_positions', 10))
 
     if args.replot:
