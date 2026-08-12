@@ -54,7 +54,7 @@ def _make_exchange():
 
 def _build_results_dict(config_files: list, risk_config: dict, capital: float,
                          exchange, start_date: str, end_date: str) -> dict:
-    from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
+    from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyFineData
     results_dict = {}
     for path in tqdm(config_files, desc='Lade Configs & Backtests'):
         fname = os.path.basename(path)
@@ -76,12 +76,7 @@ def _build_results_dict(config_files: list, risk_config: dict, capital: float,
             fine_data = None
             fine_tf = FINE_TF_MAP.get(timeframe)
             if fine_tf:
-                try:
-                    fine_data = load_data(exchange, symbol, fine_tf, start_date, end_date)
-                    if fine_data is None or fine_data.empty:
-                        fine_data = None
-                except Exception:
-                    fine_data = None
+                fine_data = LazyFineData(symbol, fine_tf)
 
             result = run_backtest(data, signal_config, risk_config, capital, symbol, fine_data=fine_data)
             if not result or result.get('total_trades', 0) == 0:

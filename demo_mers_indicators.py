@@ -21,7 +21,9 @@ def load_data():
     exch = Exchange(accounts[0])
     exchange = exch.get_exchange()
     since = exchange.parse8601('2025-01-01T00:00:00Z')
-    ohlcv = exchange.fetch_ohlcv('BTC/USDT:USDT', '6h', since=since, limit=500)
+    # limit darf Bitgets tatsaechliches Server-Maximum (200) nicht ueberschreiten,
+    # sonst verankert Bitget die Antwort still am falschen Fensterende (Anchor-Drift).
+    ohlcv = exchange.fetch_ohlcv('BTC/USDT:USDT', '6h', since=since, limit=200)
     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
     df.set_index('timestamp', inplace=True)

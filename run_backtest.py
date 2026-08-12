@@ -16,7 +16,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.exchange import Exchange
-from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
+from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyFineData
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -92,12 +92,7 @@ def main():
         fine_data = None
         fine_tf = FINE_TF_MAP.get(tf)
         if fine_tf:
-            try:
-                fine_data = load_data(exchange, symbol, fine_tf, start_date, end_date)
-                if fine_data is None or fine_data.empty:
-                    fine_data = None
-            except Exception:
-                fine_data = None
+            fine_data = LazyFineData(symbol, fine_tf)
 
         # risk_per_trade_pct kommt aus sig_cfg (Optuna-optimiert, in Config gespeichert)
         risk_config = {'risk_per_trade_pct': sig_cfg.get('risk_per_trade_pct', 1.0)}

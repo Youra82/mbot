@@ -16,7 +16,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from mbot.utils.exchange import Exchange
-from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
+from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyFineData
 
 RESULTS_DIR  = os.path.join(PROJECT_ROOT, 'artifacts', 'results')
 RESULTS_FILE = os.path.join(RESULTS_DIR, 'backtest_results.json')
@@ -76,12 +76,7 @@ def main():
             fine_data = None
             fine_tf = FINE_TF_MAP.get(timeframe)
             if fine_tf:
-                try:
-                    fine_data = load_data(exchange, symbol, fine_tf, args.start_date, args.end_date)
-                    if fine_data is None or fine_data.empty:
-                        fine_data = None
-                except Exception:
-                    fine_data = None
+                fine_data = LazyFineData(symbol, fine_tf)
 
             result = run_backtest(df, signal_config, risk_config,
                                    start_capital=args.start_capital, symbol=symbol, fine_data=fine_data)

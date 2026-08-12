@@ -19,6 +19,7 @@ Optimierung: Features werden einmal auf dem gesamten DataFrame vorberechnet
 
 import os
 import sys
+import json
 import logging
 import time
 import pandas as pd
@@ -68,6 +69,121 @@ def _resolve_ambiguous_exit(fine_slice, sl_price, tp_price, side):
             if bar['low'] <= tp_price:
                 return tp_price, 'win'
     return None, None
+
+
+secrets_cache = None
+
+
+class LazyFineData:
+    """
+    On-Demand-Fetcher fuer Fein-Daten (Intrabar-Aufloesung). Laedt Fein-Kerzen
+    nur fuer die Tage, an denen im Backtest tatsaechlich eine same-candle
+    SL/TP-Ambiguitaet auftritt, statt den kompletten Backtest-Zeitraum vorab
+    herunterzuladen -- diese Ambiguitaet ist selten (die weit ueberwiegende
+    Mehrheit der Kerzen braucht nie eine Intrabar-Aufloesung).
+    Ergebnis ist identisch zum eagerly geladenen DataFrame, nur Zeitpunkt und
+    Groesse der Netzwerk-Fetches aendern sich. Pro (symbol, fine_tf)-Instanz
+    wiederverwendbar -- z.B. ueber alle Optuna-Trials eines Optimizer-Laufs
+    hinweg, damit einmal geladene Tage nicht mehrfach abgerufen werden.
+
+    WICHTIG: Fetcht bewusst NICHT ueber load_data() -- wiederholte schmale
+    Lazy-Anfragen ueber load_data() wuerden pro Aufruf den kompletten
+    Netzwerk-Overhead eines frischen Abrufs erzeugen, statt bereits geladene
+    Tage wiederzuverwenden (in einem Schwesterprojekt fuehrte ein analoges
+    Caching-Problem zu abweichenden Backtest-Ergebnissen zwischen eager und
+    lazy). Daher direkter Exchange-Zugriff mit eigenem Tages-Cache.
+    """
+    def __init__(self, symbol, fine_tf):
+        self.symbol = symbol
+        self.fine_tf = fine_tf
+        self._days = {}
+        self._exchange = None
+
+    def _get_exchange(self):
+        global secrets_cache
+        if self._exchange is not None:
+            return self._exchange
+        try:
+            from mbot.utils.exchange import Exchange
+            if secrets_cache is None:
+                with open(os.path.join(PROJECT_ROOT, 'secret.json'), 'r') as f:
+                    secrets_cache = json.load(f)
+            accounts = secrets_cache.get('mbot', [])
+            if accounts:
+                self._exchange = Exchange(accounts[0])
+        except Exception:
+            self._exchange = None
+        return self._exchange
+
+    def _ensure_day(self, day):
+        if day in self._days:
+            return
+        exchange = self._get_exchange()
+        if exchange is None or not exchange.markets:
+            self._days[day] = None
+            return
+        try:
+            day_start_ms = int(day.value // 10**6)
+            day_end_ms   = day_start_ms + 24 * 3600 * 1000
+            tf_ms        = exchange.exchange.parse_timeframe(self.fine_tf) * 1000
+            all_ohlcv    = []
+            current      = day_start_ms
+            while current < day_end_ms:
+                chunk = exchange.exchange.fetch_ohlcv(self.symbol, self.fine_tf, current, 200)
+                if not chunk:
+                    break
+                chunk = [c for c in chunk if c[0] < day_end_ms]
+                if not chunk:
+                    break
+                all_ohlcv.extend(chunk)
+                new_current = chunk[-1][0] + tf_ms
+                if new_current <= current:
+                    break
+                current = new_current
+                time.sleep(exchange.exchange.rateLimit / 1000)
+            if not all_ohlcv:
+                self._days[day] = None
+                return
+            df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            df.set_index('timestamp', inplace=True)
+            df.sort_index(inplace=True)
+            df = df[~df.index.duplicated(keep='last')]
+            self._days[day] = df if not df.empty else None
+        except Exception:
+            self._days[day] = None
+
+    def get_slice(self, start_ts, end_ts):
+        if self.fine_tf is None:
+            return None
+        start_ts = pd.Timestamp(start_ts)
+        end_ts   = pd.Timestamp(end_ts)
+        first_day = start_ts.floor('D')
+        last_day  = (end_ts - pd.Timedelta(microseconds=1)).floor('D')
+        parts = []
+        day = first_day
+        while day <= last_day:
+            self._ensure_day(day)
+            if self._days[day] is not None:
+                parts.append(self._days[day])
+            day += pd.Timedelta(days=1)
+        if not parts:
+            return None
+        combined = pd.concat(parts).sort_index()
+        combined = combined[~combined.index.duplicated(keep='first')]
+        return combined.loc[(combined.index >= start_ts) & (combined.index < end_ts)]
+
+
+def _get_fine_slice(fine_data, start_ts, end_ts):
+    """Liest ein Fein-Daten-Fenster aus -- akzeptiert sowohl einen bereits
+    komplett geladenen DataFrame (alte, eager Nutzung) als auch ein
+    LazyFineData-Objekt (neue, on-demand Nutzung), per Duck-Typing."""
+    if fine_data is None:
+        return None
+    if hasattr(fine_data, 'get_slice'):
+        return fine_data.get_slice(start_ts, end_ts)
+    return fine_data.loc[(fine_data.index >= start_ts) & (fine_data.index < end_ts)]
+
 
 logger = logging.getLogger(__name__)
 
@@ -213,9 +329,7 @@ def run_backtest(df: pd.DataFrame, signal_config: dict, risk_config: dict,
                     exit_p, result = None, None
                     if fine_data is not None and coarse_duration is not None:
                         idx_ts = df.index[i]
-                        fine_slice = fine_data.loc[
-                            (fine_data.index >= idx_ts) & (fine_data.index < idx_ts + coarse_duration)
-                        ]
+                        fine_slice = _get_fine_slice(fine_data, idx_ts, idx_ts + coarse_duration)
                         exit_p, result = _resolve_ambiguous_exit(fine_slice, sl_p, tp_p, side)
                     if exit_p is None:
                         result, exit_p = 'loss', sl_p  # Fallback: alte SL-first-Konvention

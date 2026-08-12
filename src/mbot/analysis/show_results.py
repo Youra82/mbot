@@ -234,7 +234,7 @@ def get_exchange_and_risk():
 
 def run_all_backtests(configs, exchange, risk_config, start_date, end_date, start_capital):
     """Fuehrt Backtest fuer alle Configs durch. Gibt dict {filename: result} zurueck."""
-    from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
+    from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyFineData
     results = {}
     for cfg in configs:
         fn        = cfg.get('_filename', '?')
@@ -252,12 +252,7 @@ def run_all_backtests(configs, exchange, risk_config, start_date, end_date, star
         fine_data = None
         fine_tf = FINE_TF_MAP.get(tf)
         if fine_tf:
-            try:
-                fine_data = load_data(exchange, symbol, fine_tf, start_date, end_date)
-                if fine_data is None or fine_data.empty:
-                    fine_data = None
-            except Exception:
-                fine_data = None
+            fine_data = LazyFineData(symbol, fine_tf)
 
         result = run_backtest(df, sig_cfg, risk_config, start_capital=start_capital,
                                symbol=symbol, fine_data=fine_data)

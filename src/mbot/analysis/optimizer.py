@@ -34,7 +34,7 @@ from datetime import datetime as _dt
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP
+from mbot.analysis.backtester import load_data, run_backtest, FINE_TF_MAP, LazyFineData
 from mbot.utils.exchange import Exchange
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -225,18 +225,11 @@ def main():
         print(f"  {len(HISTORICAL_DATA)} Kerzen geladen.")
 
         # Feinere Kerzen fuer SL/TP-Intrabar-Reihenfolgen-Aufloesung (oraclebot-Muster).
+        # On-Demand (lazy): nur die Tage mit echter SL/TP-Ambiguitaet werden abgerufen.
         FINE_DATA = None
         fine_tf = FINE_TF_MAP.get(CURRENT_TIMEFRAME)
         if fine_tf:
-            try:
-                FINE_DATA = load_data(exchange, CURRENT_SYMBOL, fine_tf, args.start_date, args.end_date)
-                if FINE_DATA is None or FINE_DATA.empty:
-                    FINE_DATA = None
-                else:
-                    print(f"  Fein-Daten geladen: {fine_tf} ({len(FINE_DATA)} Kerzen).")
-            except Exception as _e:
-                print(f"  Warnung: Fein-Daten-Abruf ({fine_tf}) fehlgeschlagen ({_e}).")
-                FINE_DATA = None
+            FINE_DATA = LazyFineData(CURRENT_SYMBOL, fine_tf)
 
         db_file     = os.path.join(db_dir, 'optuna_studies_mbot.db')
         storage_url = f"sqlite:///{db_file}?timeout=60"
