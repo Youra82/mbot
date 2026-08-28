@@ -162,19 +162,28 @@ def main():
     active_strategy_keys = {(s['symbol'], s['timeframe']) for s in active_strategies}
 
     # ==========================================================
-    # FALL A: Position-Check nur fuer Positionen in active_strategies
+    # FALL A: Position-Check fuer ALLE getrackten Positionen
     # ==========================================================
-    all_positions     = read_active_positions()
-    relevant_positions = [p for p in all_positions
-                          if (p.get('symbol'), p.get('timeframe')) in active_strategy_keys]
-    orphaned           = [p for p in all_positions if p not in relevant_positions]
+    # WICHTIG: auch Positionen pruefen, deren (symbol, timeframe) nicht mehr
+    # in active_strategies steht (z.B. weil der Auto-Optimizer die Strategie
+    # inzwischen entfernt/umkonfiguriert hat). Werden solche "verwaisten"
+    # Positionen NIE gecheckt, bleibt der zugehoerige SL- oder TP-Trigger
+    # (das jeweils nicht ausgeloeste Gegenstueck) fuer immer auf der Boerse
+    # stehen -> Ghost-Trigger. Der Housekeeper (in --mode check) raeumt das
+    # zuverlaessig auf, sobald die Exchange keine offene Position mehr zeigt.
+    all_positions = read_active_positions()
+    orphaned      = [p for p in all_positions
+                     if (p.get('symbol'), p.get('timeframe')) not in active_strategy_keys]
 
     for p in orphaned:
-        logging.warning(f"  Ignoriere verwaiste Position (nicht in settings): {p.get('symbol')} ({p.get('timeframe')})")
+        logging.warning(
+            f"  Verwaiste Position (nicht mehr in active_strategies): "
+            f"{p.get('symbol')} ({p.get('timeframe')}) - wird trotzdem geprueft/aufgeraeumt."
+        )
 
-    if relevant_positions:
-        logging.info(f"Offene Trades: {len(relevant_positions)} -> Pruefe alle Positionen...")
-        for pos in relevant_positions:
+    if all_positions:
+        logging.info(f"Offene Trades: {len(all_positions)} -> Pruefe alle Positionen (inkl. verwaister)...")
+        for pos in all_positions:
             sym = pos.get('symbol')
             tf  = pos.get('timeframe')
             if not sym or not tf:
@@ -187,12 +196,13 @@ def main():
     # ==========================================================
     # FALL B: Signal-Check fuer freie Strategien
     # ==========================================================
-    # Aktuellen State nach den Checks neu einlesen (nur relevante)
-    all_positions    = read_active_positions()
-    active_positions = [p for p in all_positions
-                        if (p.get('symbol'), p.get('timeframe')) in active_strategy_keys]
-    active_keys      = {(p['symbol'], p['timeframe']) for p in active_positions}
-    num_open         = len(active_keys)
+    # Aktuellen State nach den Checks neu einlesen (ALLE Positionen zaehlen
+    # fuer max_open_positions/Symbol-Sperre, nicht nur die aktiven Strategien -
+    # eine verwaiste Position blockiert weiterhin Kapital/das Symbol).
+    all_positions = read_active_positions()
+    busy_symbols  = {p.get('symbol') for p in all_positions if p.get('symbol')}
+    active_keys   = {(p.get('symbol'), p.get('timeframe')) for p in all_positions}
+    num_open      = len(all_positions)
 
     if num_open >= max_open_positions:
         logging.info(f"Max. Positionen ({max_open_positions}) belegt. Kein Signal-Check.")
@@ -216,13 +226,21 @@ def main():
             logging.info(f"  {sym} ({tf}): bereits in Trade, ueberspringe.")
             continue
 
+        if sym in busy_symbols:
+            logging.info(
+                f"  {sym} ({tf}): Symbol hat noch eine andere getrackte Position "
+                f"(vermutlich verwaist) - ueberspringe zur Sicherheit."
+            )
+            continue
+
         logging.info(f"  Signal-Check: {sym} ({tf})")
         run_strategy(python_exe, sym, tf, mode='signal', wait=True)
 
         # State neu einlesen um aktuellen Stand zu kennen
-        active_positions = read_active_positions()
-        active_keys      = {(p['symbol'], p['timeframe']) for p in active_positions}
-        num_open         = len(active_keys)
+        all_positions = read_active_positions()
+        busy_symbols  = {p.get('symbol') for p in all_positions if p.get('symbol')}
+        active_keys   = {(p.get('symbol'), p.get('timeframe')) for p in all_positions}
+        num_open      = len(all_positions)
 
         if num_open >= max_open_positions:
             logging.info(f"Max. Positionen ({max_open_positions}) erreicht. Stoppe Signal-Suche.")

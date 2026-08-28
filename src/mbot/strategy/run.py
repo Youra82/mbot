@@ -165,6 +165,19 @@ def run_for_account(account: dict, telegram_config: dict,
             logger.info(f"Strategie {symbol} ({timeframe}) wurde parallel belegt, ueberspringe.")
             return
 
+        # Sicherheitscheck gegen die ECHTE Exchange-Position (nicht nur lokalen State):
+        # falls fuer dieses Symbol noch eine Position offen ist (z.B. verwaist unter
+        # anderem Timeframe getrackt), auf keinen Fall einen zweiten Entry platzieren.
+        if exchange.fetch_open_positions(symbol):
+            logger.warning(
+                f"Exchange zeigt bereits eine offene Position fuer {symbol} - ueberspringe Signal."
+            )
+            return
+
+        # Housekeeper VOR dem Entry: raeumt liegen gebliebene SL/TP-Trigger-Orders
+        # von vorherigen Trades auf diesem Symbol auf (Ghost-Trigger-Fix, wie titanbot).
+        housekeeper_routine(exchange, symbol, logger)
+
         # Trade ausfuehren (SL/TP ATR-basiert aus signal['sl_price'] / signal['tp_price'])
         success = execute_signal_trade(
             exchange, symbol, timeframe, signal,
