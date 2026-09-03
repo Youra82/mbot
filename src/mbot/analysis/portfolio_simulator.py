@@ -164,7 +164,8 @@ def _best_tf_per_coin(results_dict: dict) -> dict:
 
 
 def find_best_portfolio(results_dict: dict, start_capital: float,
-                        target_max_dd: float, verbose: bool = False) -> dict:
+                        target_max_dd: float, min_trades: int = 0,
+                        verbose: bool = False) -> dict:
     """
     Findet das beste Portfolio per Greedy-Algorithmus (mbot-Stil).
 
@@ -172,8 +173,15 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
     Algorithmus:
       1. Bewerte alle Einzelstrategien, waehle besten Calmar als Star-Strategie.
       2. Greedy: Fuege die Strategie hinzu die den Calmar am meisten verbessert.
-      3. Stoppe wenn keine Ergaenzung mehr hilft.
+         Solange das Portfolio noch unter min_trades liegt, wird auch die beste
+         verfuegbare Ergaenzung ohne Calmar-Verbesserung angenommen (Sample-Aufbau) —
+         ein Portfolio mit zu wenigen Trades ist statistisch nicht bewertbar,
+         selbst wenn sein Calmar-Wert gut aussieht.
+      3. Stoppe wenn keine Ergaenzung mehr hilft (bzw. keine Kandidaten mehr uebrig sind).
     Constraint: max. 1 Timeframe pro Coin (bester Calmar wird behalten).
+    Constraint: Gesamtportfolio muss mindestens min_trades Trades haben,
+    sonst wird kein Portfolio zurueckgegeben (None) — zu kleine Stichproben
+    sind kein verlaessliches "optimal".
     """
     filtered = _best_tf_per_coin(results_dict)
     if verbose and len(filtered) < len(results_dict):
@@ -231,6 +239,13 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
         best_addition_score = best_score
         best_addition_port  = best_port
 
+        # Fallback fuer Sample-Aufbau: beste Ergaenzung auch ohne Calmar-Verbesserung,
+        # nur relevant solange best_port noch unter min_trades liegt.
+        need_more_trades  = best_port['total_trades'] < min_trades
+        fallback_addition = None
+        fallback_score    = None
+        fallback_port     = None
+
         for candidate in candidate_pool:
             combo  = best_selected + [candidate]
             subset = {k: filtered[k] for k in combo}
@@ -249,6 +264,10 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
                 best_addition_score = score
                 best_addition       = candidate
                 best_addition_port  = port
+            if need_more_trades and (fallback_score is None or score > fallback_score):
+                fallback_score    = score
+                fallback_addition = candidate
+                fallback_port     = port
 
         if best_addition:
             r = filtered[best_addition]
@@ -261,10 +280,29 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
             candidate_pool.remove(best_addition)
             best_score = best_addition_score
             best_port  = best_addition_port
+        elif need_more_trades and fallback_addition:
+            r = filtered[fallback_addition]
+            if verbose:
+                print(f'  + {r.get("symbol","?")} {r.get("timeframe","?")} '
+                      f'(Sample-Aufbau, nur {best_port["total_trades"]} Trades bisher — '
+                      f'Calmar sinkt auf {fallback_score:.2f} | '
+                      f'PnL: {fallback_port["total_pnl_pct"]:+.1f}% | '
+                      f'DD: {fallback_port["max_drawdown"]:.1f}%)')
+            best_selected.append(fallback_addition)
+            candidate_pool.remove(fallback_addition)
+            best_score = fallback_score
+            best_port  = fallback_port
         else:
             if verbose:
                 print(f'\n  Keine weitere Verbesserung. Optimierung beendet.')
             break
+
+    if best_port['total_trades'] < min_trades:
+        if verbose:
+            print(f'\n  Selbst mit allen verfuegbaren Strategien nur '
+                  f'{best_port["total_trades"]} Trades — unter Mindest-Sample '
+                  f'({min_trades}). Kein statistisch belastbares Portfolio.')
+        return None
 
     return {
         'portfolio': best_port,

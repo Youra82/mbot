@@ -344,6 +344,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='mbot Portfolio-Optimizer')
     parser.add_argument('--capital',    type=float, default=None)
     parser.add_argument('--max-dd',     type=float, default=30.0)
+    parser.add_argument('--min-trades', type=int,   default=None,
+                        help='Mindest-Trades im Gesamtportfolio (Default aus settings.json)')
     parser.add_argument('--start-date', type=str,   default=None)
     parser.add_argument('--end-date',   type=str,   default=None)
     parser.add_argument('--auto-write', action='store_true')
@@ -357,6 +359,8 @@ def main() -> int:
     risk_config   = settings.get('risk', {})
     capital       = args.capital or float(opt.get('start_capital', 100))
     max_dd        = args.max_dd
+    min_trades    = (args.min_trades if args.min_trades is not None
+                      else int(opt.get('constraints', {}).get('min_trades', 30)))
     end_date      = args.end_date   or date.today().strftime('%Y-%m-%d')
     # Startdatum-Fallback: backtest_lookback_weeks (rollend, hat Vorrang) ->
     # start_date (fixes Legacy-Datum) -> DEFAULT_LOOKBACK_DAYS.
@@ -377,7 +381,7 @@ def main() -> int:
 
     print(f"\n{'─'*72}")
     print(f"{B}  mbot — Automatische Portfolio-Optimierung{NC}")
-    print(f"  Portfolio-Simulation + Calmar-Greedy (MaxDD ≤ {max_dd:.0f}%)")
+    print(f"  Portfolio-Simulation + Calmar-Greedy (MaxDD ≤ {max_dd:.0f}%, Trades ≥ {min_trades})")
     print(f"  Kapital: {capital:.0f} USDT | Positionen: max {max_positions} | "
           f"Zeitraum: {start_date} → {end_date}")
     print(f"{'─'*72}\n")
@@ -402,10 +406,11 @@ def main() -> int:
         return 1
 
     from mbot.analysis.portfolio_simulator import find_best_portfolio
-    portfolio = find_best_portfolio(results_dict, capital, max_dd, verbose=True)
+    portfolio = find_best_portfolio(results_dict, capital, max_dd, min_trades=min_trades, verbose=True)
 
     if not portfolio or not portfolio.get('selected'):
-        print(f"{R}  Kein Portfolio erfuellt die Bedingungen (MaxDD ≤ {max_dd:.0f}%).{NC}\n")
+        print(f"{R}  Kein Portfolio erfuellt die Bedingungen "
+              f"(MaxDD ≤ {max_dd:.0f}%, Trades ≥ {min_trades}).{NC}\n")
         return 0
 
     selected_files = portfolio['selected'][:max_positions]

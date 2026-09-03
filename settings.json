@@ -73,7 +73,8 @@
         "start_date": "2025-01-01",
         "end_date": "auto",
         "constraints": {
-            "max_drawdown_pct": 30
+            "max_drawdown_pct": 30,
+            "min_trades": 30
         },
         "send_telegram_on_completion": true
     },
