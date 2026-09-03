@@ -59,48 +59,66 @@ def _simulate_portfolio(trades: list, start_capital: float) -> dict:
     Regel (mbot-Stil): Pro Strategie (_strategy_key) darf kein
     neuer Trade starten waehrend die Strategie noch in einem Trade ist.
     Verschiedene Strategien koennen gleichzeitig laufen.
+
+    Kapital-Modell: pnl_usdt wird beim ENTRY anhand des zu diesem Zeitpunkt
+    REALISIERTEN Kapitals fixiert (nicht durch zeitgleich noch offene,
+    parallele Strategien aufgeblaeht) und erst beim EXIT dem Kapital
+    gutgeschrieben. Ohne das wuerden zwei gleichzeitig offene Strategien sich
+    gegenseitig unrealisiertes Kapital gutschreiben -- schliesst A vor B und
+    A gewinnt, wuerde B's fixer pnl_pct sonst auf As bereits aufgeblaehtes
+    Kapital angewendet, obwohl B beim eigenen Entry nie mehr als das
+    urspruengliche Kapital zur Verfuegung hatte. Bei vielen parallel
+    laufenden Strategien kaskadiert dieser Fehler exponentiell.
     """
     if not trades:
         return _empty_portfolio(start_capital)
 
-    capital    = start_capital
-    executed   = []
+    # Pass 1: pro-Strategie-Lock -- welche Trades werden ueberhaupt ausgefuehrt.
+    trades_by_entry = sorted(trades, key=lambda t: t.get('entry_time', ''))
     open_until = {}  # strategy_key -> exit_time (ISO-String)
-
-    for t in trades:
+    executed   = []
+    for t in trades_by_entry:
         key        = t.get('_strategy_key', '')
         entry_time = t.get('entry_time', '')
         exit_time  = t.get('exit_time', '')
-
-        # Diese Strategie ist noch in einem Trade → ueberspringen
         if key in open_until and entry_time <= open_until[key]:
             continue
-
-        # pnl_pct vom Backtester ist bereits relativ zum vollen Kapital
-        pnl_pct  = t.get('pnl_pct', 0.0)
-        pnl_usdt = capital * pnl_pct / 100.0
-        capital  = max(capital + pnl_usdt, 0.0)
-
         open_until[key] = exit_time
-
-        executed.append({
-            **t,
-            'portfolio_pnl_usdt':      round(pnl_usdt, 2),
-            'portfolio_capital_after': round(capital, 2),
-        })
+        executed.append(t)
 
     if not executed:
         return _empty_portfolio(start_capital)
 
-    # Nach exit_time sortieren und portfolio_capital_after neu berechnen,
-    # damit die Equity-Kurve chronologisch monoton ist (kein Zickzack).
+    # Pass 2: Event-Zeitstrahl aus Entry- und Exit-Events. Bei Gleichstand
+    # zuerst Exit (Kapital wird frei), dann Entry (sieht das freigewordene
+    # Kapital) -- entspricht realem Verhalten (Position schliessen, dann neu
+    # oeffnen auf derselben Kerze).
+    events = []
+    for i, t in enumerate(executed):
+        events.append((t.get('entry_time', ''), 1, i))  # 1 = entry
+        events.append((t.get('exit_time',  t.get('entry_time', '')), 0, i))  # 0 = exit
+    events.sort(key=lambda e: (e[0], e[1]))
+
+    cap             = start_capital
+    entry_snapshot  = {}
+    result_by_idx   = {}
+    for _time, kind, i in events:
+        t = executed[i]
+        if kind == 1:
+            entry_snapshot[i] = cap
+        else:
+            base     = entry_snapshot.get(i, cap)
+            pnl_pct  = t.get('pnl_pct', 0.0)
+            pnl_usdt = base * pnl_pct / 100.0
+            cap      = max(cap + pnl_usdt, 0.0)
+            result_by_idx[i] = {
+                **t,
+                'portfolio_pnl_usdt':      round(pnl_usdt, 2),
+                'portfolio_capital_after': round(cap, 2),
+            }
+
+    executed = [result_by_idx[i] for i in range(len(executed)) if i in result_by_idx]
     executed.sort(key=lambda t: t.get('exit_time', t.get('entry_time', '')))
-    cap = start_capital
-    for t in executed:
-        pnl = cap * t.get('pnl_pct', 0.0) / 100.0
-        cap = max(cap + pnl, 0.0)
-        t['portfolio_pnl_usdt']      = round(pnl, 2)
-        t['portfolio_capital_after'] = round(cap, 2)
     capital = cap
 
     wins = sum(1 for t in executed if t.get('result') == 'win')
