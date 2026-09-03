@@ -199,7 +199,7 @@ def generate_trades_excel(final, results_dict, capital, start_date, end_date):
             'Datum':         str(t.get('entry_time', ''))[:16].replace('T', ' '),
             'Symbol':        symbol,
             'Timeframe':     tf,
-            'Richtung':      str(t.get('direction', '?')).upper(),
+            'Richtung':      str(t.get('side', '?')).upper(),
             'Ergebnis':      'TP erreicht' if result == 'win' else 'SL erreicht',
             'PnL (USDT)':    round(pnl, 4),
             'Gesamtkapital': round(equity, 4),
