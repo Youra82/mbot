@@ -162,6 +162,7 @@ def main():
     capital    = float(opt_settings.get('start_capital', 1000))
     max_dd     = float(opt_settings.get('constraints', {}).get('max_drawdown_pct', 30))
     min_trades = int(opt_settings.get('constraints', {}).get('min_trades', 30))
+    score_mode = opt_settings.get('constraints', {}).get('score_mode', 'calmar')
     # backtest_lookback_weeks (rollend) hat Vorrang -- dann ueberlassen wir die
     # Datumsberechnung run_portfolio_optimizer.py selbst (kein --start-date hier).
     lookback_weeks = opt_settings.get('backtest_lookback_weeks')
@@ -182,7 +183,7 @@ def main():
     try:
         cmd = [sys.executable, PORTFOLIO_SCRIPT,
                '--capital', str(capital), '--max-dd', str(max_dd),
-               '--min-trades', str(min_trades), '--auto-write']
+               '--min-trades', str(min_trades), '--score-mode', score_mode, '--auto-write']
         if start_date not in ('auto', '', None):
             cmd += ['--start-date', start_date]
         if end_date not in ('auto', '', None):

@@ -11,6 +11,7 @@ import sys
 import json
 import logging
 import argparse
+from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
@@ -92,9 +93,14 @@ def main():
         meta    = cfg.get('_meta', {})
         sig_cfg = cfg.get('signal', {})
 
-        # Zeitraum aus Config-Metadaten
-        start_date = meta.get('start_date', '2024-01-01')
-        end_date   = meta.get('end_date',   '2099-01-01')
+        # Zeitraum aus Config-Metadaten -- end_date wird auf "heute" erweitert
+        # (nie verkleinert), damit echte, nie von Optuna gesehene Daten seit dem
+        # Trainings-Ende mit in artifacts/results/backtest_*.json landen. Sonst
+        # testen Walk-Forward & Co. faktisch nur auf dem Optuna-Trainingsfenster.
+        start_date    = meta.get('start_date', '2024-01-01')
+        cfg_end_date  = meta.get('end_date', '2099-01-01')
+        today_str     = datetime.now().strftime('%Y-%m-%d')
+        end_date      = max(cfg_end_date, today_str)
 
         print(f'  Lade: {symbol} ({tf}) | {start_date} → {end_date}...')
         df = load_data(exchange, symbol, tf, start_date, end_date)

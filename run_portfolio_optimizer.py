@@ -346,6 +346,10 @@ def main() -> int:
     parser.add_argument('--max-dd',     type=float, default=30.0)
     parser.add_argument('--min-trades', type=int,   default=None,
                         help='Mindest-Trades im Gesamtportfolio (Default aus settings.json)')
+    parser.add_argument('--score-mode', type=str,   default=None, choices=['calmar', 'pnl'],
+                        help='Rangier-Metrik: calmar (Standard, risikoadjustiert) oder pnl '
+                             '(maximiert rohe PnL%%, MaxDD bleibt harte Grenze). '
+                             'Default aus settings.json::optimization_settings.constraints.score_mode.')
     parser.add_argument('--start-date', type=str,   default=None)
     parser.add_argument('--end-date',   type=str,   default=None)
     parser.add_argument('--auto-write', action='store_true')
@@ -361,6 +365,8 @@ def main() -> int:
     max_dd        = args.max_dd
     min_trades    = (args.min_trades if args.min_trades is not None
                       else int(opt.get('constraints', {}).get('min_trades', 30)))
+    score_mode    = (args.score_mode if args.score_mode is not None
+                      else opt.get('constraints', {}).get('score_mode', 'calmar'))
     end_date      = args.end_date   or date.today().strftime('%Y-%m-%d')
     # Startdatum-Fallback: backtest_lookback_weeks (rollend, hat Vorrang) ->
     # start_date (fixes Legacy-Datum) -> DEFAULT_LOOKBACK_DAYS.
@@ -381,7 +387,7 @@ def main() -> int:
 
     print(f"\n{'─'*72}")
     print(f"{B}  mbot — Automatische Portfolio-Optimierung{NC}")
-    print(f"  Portfolio-Simulation + Calmar-Greedy (MaxDD ≤ {max_dd:.0f}%, Trades ≥ {min_trades})")
+    print(f"  Portfolio-Simulation + Greedy ({score_mode}) (MaxDD ≤ {max_dd:.0f}%, Trades ≥ {min_trades})")
     print(f"  Kapital: {capital:.0f} USDT | Positionen: max {max_positions} | "
           f"Zeitraum: {start_date} → {end_date}")
     print(f"{'─'*72}\n")
@@ -406,7 +412,8 @@ def main() -> int:
         return 1
 
     from mbot.analysis.portfolio_simulator import find_best_portfolio
-    portfolio = find_best_portfolio(results_dict, capital, max_dd, min_trades=min_trades, verbose=True)
+    portfolio = find_best_portfolio(results_dict, capital, max_dd, min_trades=min_trades,
+                                     score_mode=score_mode, verbose=True)
 
     if not portfolio or not portfolio.get('selected'):
         print(f"{R}  Kein Portfolio erfuellt die Bedingungen "

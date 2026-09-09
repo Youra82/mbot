@@ -104,8 +104,12 @@ run_mode() {
         read -p "Max. Drawdown-Limit fuer Portfolio-Auswahl in % [Standard: 30]: " MAX_DD
         MAX_DD="${MAX_DD//[$'\r\n ']/}"
         if ! [[ "$MAX_DD" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then MAX_DD=30; fi
+        read -p "Min. Trades im GESAMTPORTFOLIO je In-Sample-Fenster [Standard: 30]: " MIN_PT
+        MIN_PT="${MIN_PT//[$'\r\n ']/}"
+        if ! [[ "$MIN_PT" =~ ^[0-9]+$ ]]; then MIN_PT=30; fi
         $PYTHON "$SCRIPT_DIR/walk_forward_test.py" \
-            --capital "$CAP" --min-trades "$MIN_T" --max-dd "$MAX_DD" $NO_TELEGRAM
+            --capital "$CAP" --min-trades "$MIN_T" --max-dd "$MAX_DD" \
+            --min-portfolio-trades "$MIN_PT" $NO_TELEGRAM
         ;;
 
     # ── 2: Fee Impact ─────────────────────────────────────────────────────────
@@ -299,7 +303,8 @@ if [ "$MODE" == "0" ]; then
         echo -e "${CYAN}══════════════════════════════════════════════════════${NC}"
         case "$i" in
             1)  $PYTHON "$SCRIPT_DIR/walk_forward_test.py" \
-                    --capital 100 --min-trades 2 --max-dd 30 $NO_TELEGRAM 2>/dev/null || true ;;
+                    --capital 100 --min-trades 2 --max-dd 30 \
+                    --min-portfolio-trades 30 $NO_TELEGRAM 2>/dev/null || true ;;
             2)  $PYTHON "$ANALYSIS_DIR/fee_impact.py" \
                     --capital 100 $NO_TELEGRAM 2>/dev/null || true ;;
             3)  $PYTHON "$ANALYSIS_DIR/monte_carlo.py" \

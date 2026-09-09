@@ -95,7 +95,8 @@ def _pseudo_backtest_result(r):
     return {**r, 'total_pnl_pct': sim['pnl_pct'], 'max_drawdown': sim['max_dd'], 'total_trades': sim['n']}
 
 
-def run_walk_forward(all_results, lookback_weeks, min_trades, week_starts, capital, max_dd_limit):
+def run_walk_forward(all_results, lookback_weeks, min_trades, week_starts, capital, max_dd_limit,
+                      min_portfolio_trades=0, score_mode='calmar'):
     """Walk-Forward fuer einen Lookback-Zeitraum. Equity akkumuliert rollend."""
     equity = capital
     curve  = []
@@ -111,7 +112,9 @@ def run_walk_forward(all_results, lookback_weeks, min_trades, week_starts, capit
 
         selected_keys = []
         if pseudo:
-            portfolio = find_best_portfolio(pseudo, 100.0, max_dd_limit, verbose=False)
+            portfolio = find_best_portfolio(pseudo, 100.0, max_dd_limit,
+                                             min_trades=min_portfolio_trades,
+                                             score_mode=score_mode, verbose=False)
             if portfolio and portfolio.get('selected'):
                 selected_keys = portfolio['selected']
 
@@ -242,6 +245,25 @@ def main():
                         help='Min. Trades pro Pair im Lookback-Fenster')
     parser.add_argument('--max-dd',      type=float, default=30.0,
                         help='Max. Drawdown-Limit fuer die In-Sample Portfolio-Auswahl (%%)')
+    parser.add_argument('--min-portfolio-trades', type=int, default=30,
+                        help='Mindest-Trades im GESAMTPORTFOLIO je In-Sample-Fenster (wie beim '
+                             'echten woechentlichen Optimizer, settings.json::constraints.min_trades). '
+                             'Faellt eine In-Sample-Auswahl darunter, wird die Woche uebersprungen '
+                             '(kein statistisch belastbares Portfolio) statt ein Zufalls-Ergebnis '
+                             'zu uebernehmen.')
+    parser.add_argument('--min-date',    type=str,   default=None,
+                        help='Beschraenkt die getesteten OOS-Wochen auf Daten ab diesem Datum '
+                             '(YYYY-MM-DD). Sinnvoll um NUR auf Zeitraum zu testen, den die '
+                             'Optuna-Configs beim Training nie gesehen haben (spaetestes '
+                             'Config-end_date -- siehe Config-Metadaten), statt versehentlich '
+                             'auf auswendig gelernter Vergangenheit zu "OOS"-testen.')
+    parser.add_argument('--score-mode',  type=str,   default='calmar', choices=['calmar', 'pnl'],
+                        help='Rangier-Metrik fuer find_best_portfolio: calmar (Standard) oder pnl '
+                             '(maximiert rohe PnL%%, MaxDD bleibt harte Grenze).')
+    parser.add_argument('--only',        type=str,   default=None,
+                        help='Kommagetrennte SYMBOL_TF-Liste (z.B. "BNBUSDTUSDT_1d,BTCUSDTUSDT_1d") '
+                             'um den Walk-Forward nur auf diese Pairs als Kandidatenpool zu '
+                             'beschraenken, statt alle geladenen Configs zuzulassen.')
     parser.add_argument('--no-telegram', action='store_true')
     args = parser.parse_args()
 
@@ -253,6 +275,8 @@ def main():
     print(f"  Startkapital: {capital} USDT")
     print(f"  Min. Trades:  {args.min_trades} (pro Pair im Lookback-Fenster)")
     print(f"  MaxDD-Limit:  {args.max_dd}% (In-Sample Portfolio-Auswahl)")
+    print(f"  Min. Portfolio-Trades: {args.min_portfolio_trades} (Gesamtportfolio je In-Sample-Fenster)")
+    print(f"  Score-Modus:  {args.score_mode}")
     print(f"  Lookbacks:    {LOOKBACK_WINDOWS} Wochen")
     print()
 
@@ -261,6 +285,22 @@ def main():
     if not all_results:
         print(f"\n  {R}Keine Backtest-Daten. Erst run_backtest.py ausfuehren!{NC}\n")
         sys.exit(1)
+
+    if args.only:
+        wanted = {s.strip() for s in args.only.split(',') if s.strip()}
+        found_keys = {fn[len('backtest_'):-len('.json')] for fn in all_results}
+        missing = wanted - found_keys
+        if missing:
+            print(f"\n  {Y}--only: nicht gefunden: {sorted(missing)}{NC}")
+        all_results = {
+            fn: r for fn, r in all_results.items()
+            if fn[len('backtest_'):-len('.json')] in wanted
+        }
+        if not all_results:
+            print(f"\n  {R}--only: keine der angegebenen Pairs hat Backtest-Daten.{NC}\n")
+            sys.exit(1)
+        print(f"\n  {Y}--only: beschraenkt auf {len(all_results)} Pair(s): "
+              f"{sorted(fn[len('backtest_'):-len('.json')] for fn in all_results)}{NC}")
 
     all_dts  = [t['entry_dt'] for r in all_results.values() for t in r['trades']]
     min_date, max_date = min(all_dts), max(all_dts)
@@ -286,6 +326,13 @@ def main():
         week_starts.append(w)
         w += timedelta(weeks=1)
 
+    if args.min_date:
+        min_dt = _parse_dt(args.min_date)
+        before = len(week_starts)
+        week_starts = [w for w in week_starts if w >= min_dt]
+        print(f"  {Y}--min-date {args.min_date}: {before - len(week_starts)} frueherer "
+              f"Wochen ausgeschlossen (nur echte, nie von Optuna gesehene Zeit getestet).{NC}")
+
     if len(week_starts) < 2:
         print(f"  {R}Zu wenig OOS-Wochen ({len(week_starts)}).{NC}\n")
         sys.exit(1)
@@ -298,7 +345,8 @@ def main():
     for weeks in active_lookbacks:
         print(f"  {C}Lookback {weeks:2d}W ...{NC}", end='', flush=True)
         curve, n_total, n_wins, empty_w = run_walk_forward(
-            all_results, weeks, args.min_trades, week_starts, capital, args.max_dd
+            all_results, weeks, args.min_trades, week_starts, capital, args.max_dd,
+            min_portfolio_trades=args.min_portfolio_trades, score_mode=args.score_mode
         )
         calmar, pnl_pct, max_dd = compute_stats(curve, capital)
         wr = n_wins / n_total * 100 if n_total > 0 else 0.0

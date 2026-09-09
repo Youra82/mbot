@@ -38,6 +38,19 @@ def _calmar(port: dict) -> float:
     return pnl / dd if dd > 0 else pnl
 
 
+def _score(port: dict, mode: str = 'calmar') -> float:
+    """
+    Rangier-Metrik fuer die Portfolio-Auswahl.
+      'calmar' (Standard): PnL% / MaxDD% -- balanciert Rendite und Risiko.
+      'pnl':    rohe PnL% -- maximiert Rendite, die MaxDD-Grenze wirkt weiterhin
+                als harte Ausschluss-Constraint (siehe find_best_portfolio),
+                wird aber nicht mehr in die Rangierung selbst eingerechnet.
+    """
+    if mode == 'pnl':
+        return port.get('total_pnl_pct', 0.0)
+    return _calmar(port)
+
+
 def _merge_trades_chronological(results_dict: dict) -> list:
     """
     Sammelt alle Trades aus allen Strategien, haengt den Strategie-Key
@@ -165,43 +178,44 @@ def run_portfolio_simulation(results_dict: dict, start_capital: float) -> dict:
     return _simulate_portfolio(trades, start_capital)
 
 
-def _best_tf_per_coin(results_dict: dict) -> dict:
+def _best_tf_per_coin(results_dict: dict, score_mode: str = 'calmar') -> dict:
     """
-    Behaelt pro Coin nur den Timeframe mit dem besten Calmar-Wert
-    (PnL / MaxDD). Verhindert widerspruechliche Signale fuer denselben Coin.
+    Behaelt pro Coin nur den Timeframe mit dem besten Score (siehe _score()).
+    Verhindert widerspruechliche Signale fuer denselben Coin.
     """
-    best = {}  # coin_base -> (filename, calmar_score)
+    best = {}  # coin_base -> (filename, score)
     for fn, r in results_dict.items():
-        coin   = r.get('symbol', '').replace('/USDT:USDT', '').replace('/', '').replace(':', '')
-        dd     = r.get('max_drawdown', 0.0)
-        pnl    = r.get('total_pnl_pct', 0.0)
-        calmar = pnl / dd if dd > 0 else pnl
-        if coin not in best or calmar > best[coin][1]:
-            best[coin] = (fn, calmar)
+        coin  = r.get('symbol', '').replace('/USDT:USDT', '').replace('/', '').replace(':', '')
+        score = _score(r, score_mode)
+        if coin not in best or score > best[coin][1]:
+            best[coin] = (fn, score)
     return {fn: results_dict[fn] for fn, _ in best.values()}
 
 
 def find_best_portfolio(results_dict: dict, start_capital: float,
                         target_max_dd: float, min_trades: int = 0,
-                        verbose: bool = False) -> dict:
+                        score_mode: str = 'calmar', verbose: bool = False) -> dict:
     """
     Findet das beste Portfolio per Greedy-Algorithmus (mbot-Stil).
 
-    Score-Metrik: Calmar Ratio (PnL% / MaxDD%) — balanciert Rendite und Risiko.
+    Score-Metrik (siehe _score()): 'calmar' (Standard, PnL%/MaxDD%, balanciert
+    Rendite und Risiko) oder 'pnl' (maximiert rohe PnL%, MaxDD-Grenze bleibt
+    als harte Ausschluss-Constraint aktiv, geht aber nicht mehr gewichtet in
+    die Rangierung ein).
     Algorithmus:
-      1. Bewerte alle Einzelstrategien, waehle besten Calmar als Star-Strategie.
-      2. Greedy: Fuege die Strategie hinzu die den Calmar am meisten verbessert.
+      1. Bewerte alle Einzelstrategien, waehle beste Score als Star-Strategie.
+      2. Greedy: Fuege die Strategie hinzu die den Score am meisten verbessert.
          Solange das Portfolio noch unter min_trades liegt, wird auch die beste
-         verfuegbare Ergaenzung ohne Calmar-Verbesserung angenommen (Sample-Aufbau) —
+         verfuegbare Ergaenzung ohne Score-Verbesserung angenommen (Sample-Aufbau) —
          ein Portfolio mit zu wenigen Trades ist statistisch nicht bewertbar,
-         selbst wenn sein Calmar-Wert gut aussieht.
+         selbst wenn sein Score gut aussieht.
       3. Stoppe wenn keine Ergaenzung mehr hilft (bzw. keine Kandidaten mehr uebrig sind).
-    Constraint: max. 1 Timeframe pro Coin (bester Calmar wird behalten).
+    Constraint: max. 1 Timeframe pro Coin (bester Score wird behalten).
     Constraint: Gesamtportfolio muss mindestens min_trades Trades haben,
     sonst wird kein Portfolio zurueckgegeben (None) — zu kleine Stichproben
     sind kein verlaessliches "optimal".
     """
-    filtered = _best_tf_per_coin(results_dict)
+    filtered = _best_tf_per_coin(results_dict, score_mode)
     if verbose and len(filtered) < len(results_dict):
         skipped = len(results_dict) - len(filtered)
         print(f'  Constraint: 1 TF/Coin → {skipped} schwaecher(e) Timeframe(s) ausgeschlossen.')
@@ -225,7 +239,7 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
         if port['total_pnl_pct'] <= 0:
             continue
 
-        score = _calmar(port)
+        score = _score(port, score_mode)
         single_scores.append((k, score, port))
 
     if not single_scores:
@@ -233,13 +247,15 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
             print(f'  Keine Einzelstrategie erfuellt den DD-Constraint ({target_max_dd}%).')
         return None
 
+    score_label = {'calmar': 'Calmar', 'pnl': 'PnL-Score'}.get(score_mode, 'Score')
+
     single_scores.sort(key=lambda x: x[1], reverse=True)
     best_key, best_score, best_port = single_scores[0]
 
     if verbose:
         print(f'  Star-Strategie: {filtered[best_key].get("symbol","?")} '
               f'{filtered[best_key].get("timeframe","?")} '
-              f'(Calmar: {best_score:.2f} | '
+              f'({score_label}: {best_score:.2f} | '
               f'PnL: {best_port["total_pnl_pct"]:+.1f}% | '
               f'DD: {best_port["max_drawdown"]:.1f}%)')
 
@@ -248,9 +264,9 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
     # koennen im Verbund besser sein — daher aus dem vollen filtered-Pool)
     candidate_pool = [k for k in keys if k != best_key]
 
-    # --- Schritt 2: Greedy — ergaenze solange Calmar steigt ---
+    # --- Schritt 2: Greedy — ergaenze solange der Score steigt ---
     if verbose:
-        print(f'  Suche beste Ergaenzungen (Greedy + Calmar)...')
+        print(f'  Suche beste Ergaenzungen (Greedy + {score_label})...')
 
     while candidate_pool:
         best_addition       = None
@@ -277,7 +293,7 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
             if port['total_pnl_pct'] <= 0:
                 continue
 
-            score = _calmar(port)
+            score = _score(port, score_mode)
             if score > best_addition_score:
                 best_addition_score = score
                 best_addition       = candidate
@@ -291,7 +307,7 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
             r = filtered[best_addition]
             if verbose:
                 print(f'  + {r.get("symbol","?")} {r.get("timeframe","?")} '
-                      f'(Calmar: {best_addition_score:.2f} | '
+                      f'({score_label}: {best_addition_score:.2f} | '
                       f'PnL: {best_addition_port["total_pnl_pct"]:+.1f}% | '
                       f'DD: {best_addition_port["max_drawdown"]:.1f}%)')
             best_selected.append(best_addition)
@@ -303,7 +319,7 @@ def find_best_portfolio(results_dict: dict, start_capital: float,
             if verbose:
                 print(f'  + {r.get("symbol","?")} {r.get("timeframe","?")} '
                       f'(Sample-Aufbau, nur {best_port["total_trades"]} Trades bisher — '
-                      f'Calmar sinkt auf {fallback_score:.2f} | '
+                      f'{score_label} sinkt auf {fallback_score:.2f} | '
                       f'PnL: {fallback_port["total_pnl_pct"]:+.1f}% | '
                       f'DD: {fallback_port["max_drawdown"]:.1f}%)')
             best_selected.append(fallback_addition)

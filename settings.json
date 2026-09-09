@@ -74,7 +74,9 @@
         "end_date": "auto",
         "constraints": {
             "max_drawdown_pct": 30,
-            "min_trades": 30
+            "min_trades": 30,
+            "score_mode": "calmar",
+            "_score_mode_note": "'calmar' (Standard, risikoadjustiert PnL/MaxDD) oder 'pnl' (maximiert rohe PnL%, MaxDD bleibt harte Grenze, geht aber nicht mehr gewichtet in die Rangierung ein)"
         },
         "send_telegram_on_completion": true
     },
