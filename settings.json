@@ -4,12 +4,17 @@
         "use_auto_optimizer_results": false,
         "active_strategies": [
             {
+                "symbol": "XRP/USDT:USDT",
+                "timeframe": "6h",
+                "active": true
+            },
+            {
                 "symbol": "SOL/USDT:USDT",
                 "timeframe": "1h",
                 "active": true
             },
             {
-                "symbol": "DOGE/USDT:USDT",
+                "symbol": "ARB/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
@@ -19,27 +24,17 @@
                 "active": true
             },
             {
-                "symbol": "ADA/USDT:USDT",
+                "symbol": "BTC/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
             {
-                "symbol": "XRP/USDT:USDT",
-                "timeframe": "4h",
+                "symbol": "LTC/USDT:USDT",
+                "timeframe": "1d",
                 "active": true
             },
             {
                 "symbol": "AVAX/USDT:USDT",
-                "timeframe": "1h",
-                "active": true
-            },
-            {
-                "symbol": "ARB/USDT:USDT",
-                "timeframe": "2h",
-                "active": true
-            },
-            {
-                "symbol": "BTC/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             }
