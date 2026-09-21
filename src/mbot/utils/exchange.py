@@ -115,23 +115,37 @@ class Exchange:
     # --- Positions ---
 
     def fetch_open_positions(self, symbol: str) -> list:
+        """
+        Wirft eine Exception weiter, wenn der Status nicht sicher ermittelt werden kann.
+        Ein leeres Ergebnis ("[]") bedeutet damit garantiert "wirklich keine Position" -
+        niemals "API-Aufruf fehlgeschlagen". Aufrufer (z.B. der Housekeeper) duerfen ein
+        fehlgeschlagenes [] sonst faelschlich als "Position/SL/TP wurden bereits
+        geschlossen" lesen und dann echte, noch aktive SL/TP-Trigger stornieren, waehrend
+        die Position auf der Exchange ungeschuetzt weiterlaeuft (Liquidations-Risiko).
+        """
         if not self.markets:
             return []
-        try:
-            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
-            positions = self.exchange.fetch_positions([symbol], params=params)
-            open_pos = []
-            for p in positions:
-                try:
-                    contracts = p.get('contracts') or p.get('contractSize')
-                    if contracts is not None and abs(float(contracts)) > 1e-9:
-                        open_pos.append(p)
-                except (ValueError, TypeError):
-                    continue
-            return open_pos
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen offener Positionen fuer {symbol}: {e}", exc_info=True)
-            return []
+        params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
+        last_err = None
+        for attempt in range(2):
+            try:
+                positions = self.exchange.fetch_positions([symbol], params=params)
+                open_pos = []
+                for p in positions:
+                    try:
+                        contracts = p.get('contracts') or p.get('contractSize')
+                        if contracts is not None and abs(float(contracts)) > 1e-9:
+                            open_pos.append(p)
+                    except (ValueError, TypeError):
+                        continue
+                return open_pos
+            except Exception as e:
+                last_err = e
+                if attempt == 0:
+                    logger.warning(f"Positions-Abruf fuer {symbol} fehlgeschlagen ({e}), 1 Retry...")
+                    time.sleep(2)
+        logger.error(f"Fehler beim Abrufen offener Positionen fuer {symbol}: {last_err}", exc_info=True)
+        raise last_err
 
     # --- Margin / Leverage ---
 
