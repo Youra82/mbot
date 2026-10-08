@@ -14,12 +14,7 @@
                 "active": true
             },
             {
-                "symbol": "ARB/USDT:USDT",
-                "timeframe": "1d",
-                "active": true
-            },
-            {
-                "symbol": "BNB/USDT:USDT",
+                "symbol": "AAVE/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
@@ -29,12 +24,12 @@
                 "active": true
             },
             {
-                "symbol": "LTC/USDT:USDT",
+                "symbol": "ARB/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
             {
-                "symbol": "AVAX/USDT:USDT",
+                "symbol": "BNB/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             }
