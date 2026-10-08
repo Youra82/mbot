@@ -1,308 +1,185 @@
-# mbot — MDEF-MERS Hybrid Trading Bot
+# ⚡ mbot – MERS Momentum-Bot (Entropy · Energie · Beschleunigung)
 
-Bevor ein starker Trend beginnt, verrät der Markt es — **wenn man auf die richtigen Signale achtet.**
+<div align="center">
 
-mbot hört nicht auf Kerzenformationen oder gleitende Durchschnitte. Er misst stattdessen drei Dinge, die klassische Indikatoren ignorieren: **Wie geordnet ist der Markt gerade? Baut sich gerade Energie auf? Und in welche Richtung beschleunigt der Preis?**
+![mbot](https://img.shields.io/badge/mbot-MDEF--MERS-2a78d6?style=for-the-badge)
+[![Python](https://img.shields.io/badge/Python-3.10+-green?style=for-the-badge&logo=python)](https://www.python.org/)
+[![CCXT](https://img.shields.io/badge/CCXT-4.3.5-red?style=for-the-badge)](https://github.com/ccxt/ccxt)
+[![Bitget](https://img.shields.io/badge/Börse-Bitget%20USDT--M-00c4b4?style=for-the-badge)](https://www.bitget.com/)
+[![Optuna](https://img.shields.io/badge/Optimizer-Optuna-4B8BBE?style=for-the-badge)](https://optuna.org/)
 
-Das Konzept stammt aus der Informationstheorie und Physik — und lässt sich trotzdem einfach erklären:
+**Steigt ein, wenn ein Markt geordneter wird und gleichzeitig Schwung aufbaut – Long oder Short,
+mit engem Stop-Loss, weitem Take-Profit und Risiko-basierter Positionsgröße. Mehrere Strategien parallel.**
 
-> Stell dir vor, du beobachtest BTC/USDT auf dem 1h-Chart. Die letzten 20 Stunden: chaotisches Hin und Her — rauf, runter, keine klare Richtung. Plötzlich werden die Schwankungen kleiner und gleichmäßiger, der Preis zieht ruhig aber beständig nach oben. Die **Entropy fällt** (der Markt wird „ruhiger" und strukturierter), die **Energie steigt** (das Momentum baut sich auf), und die **Beschleunigung ist positiv** (der Aufwärtsdrang verstärkt sich). Das ist der Moment, auf den mbot wartet.
+[Stand](#-stand-2026-10-08) • [Strategie](#-die-strategie) • [Ergebnisse](#-ergebnisse) • [Live-Ablauf](#-live-ablauf) • [Selbstheilung](#️-selbstheilung-sltp) • [Installation](#-installation) • [Workflow](#-workflow) • [Wartung](#-wartung)
 
-Nur wenn alle drei Bedingungen gleichzeitig erfüllt sind — **und** der Markt sich nicht im Chaos-Regime befindet — wird ein Trade eröffnet.
-
-> **Disclaimer:** Diese Software ist experimentell und dient ausschließlich Forschungszwecken.
-> Der Handel mit Kryptowährungen birgt erhebliche finanzielle Risiken. Nutzung auf eigene Gefahr.
+</div>
 
 ---
 
-## Grundidee: Markt als dynamisches System
+## 📌 Stand (2026-10-08)
 
-Klassische Bots handeln Preismuster. Dieser Bot handelt **Systemzustände**.
+| Baustein | Einstellung |
+|---|---|
+| Signal | **MERS**: Entropy fällt **und** Energie steigt → Richtung aus der Beschleunigung |
+| Portfolio | **6 Strategien**: XRP/6h · SOL/1h · AAVE/1d · BTC/1d · ARB/1d · BNB/1d |
+| Gleichzeitig offen | bis zu **10 Positionen** (`max_open_positions`), jedes Symbol nur einmal |
+| Größe | **Risiko-basiert**: 2,75–7 % des Kontos Verlust bis zum SL, Hebel 4–17× (je Config) |
+| Exit | nur harter **SL/TP** auf Bitget (ATR-basiert), kein vorzeitiger Ausstieg – wie im Backtest |
+| Portfolio-Auswahl | Auto-Optimizer jeden **Mittwoch 15:00**, rollendes Fenster der letzten **26 Wochen** |
+| Backtest 09.04.–08.10.2026 | 30 → **100,81 USDT (+236 %)**, MaxDD **26,8 %**, 41 Trades, Trefferquote **29 %** |
+| Schutz | **Selbstheilung**: offene Position ohne SL/TP wird erkannt und neu abgesichert (seit `6ab62da`) |
 
-Der Unterschied: Ein Preismuster sagt „BTC hat diesen Level dreimal getestet." Ein Systemzustand sagt „der Markt verhält sich gerade wie ein physikalisches System kurz vor einer Phasenverschiebung — geordnet, mit aufgebautem Momentum, und die Richtung ist klar."
+> ⚠️ Die Trefferquote liegt unter 30 %. Der Bot lebt von wenigen großen Gewinnern – lange Verlustserien sind normal
+> und kein Defekt. Siehe [Risiken](#️-risiken).
 
-### Drei Fragen, die der Bot bei jeder Kerze stellt
+---
 
-**1. Wird der Markt gerade geordneter?** *(Shannon Entropy)*
-Die Entropy misst, wie „überraschend" die Preisbewegungen der letzten N Kerzen waren.
-Hohe Entropy = viel Zufall, keine klare Richtung (Seitwärts-Chop).
-Fällt die Entropy → der Markt konsolidiert sich, ein Trend bahnt sich an.
+## 🤖 Die Strategie
 
-```
-Beispiel: BTC choppt 6 Stunden lang zwischen 43.000 und 43.500 USDT.
-Entropy = hoch (~2.8). Bot wartet.
+![BNB/1d: Kurs mit Entries, SL und TP; darunter Entropy und Energie, hellgrün markiert wo beide Bedingungen erfüllt sind](docs/readme/mers_signal_bnb.png)
 
-Dann: 3 Kerzen in Folge gleichmäßig aufwärts. Entropy fällt auf 1.9.
-→ Erste Bedingung erfüllt.
-```
+mbot liest keine Kerzenmuster oder gleitenden Durchschnitte. Er misst bei jeder **geschlossenen** Kerze drei
+Dinge, die zusammen einen Trendstart beschreiben:
 
-**2. Baut sich Momentum auf?** *(Kinetische Energie)*
-Energie = Geschwindigkeit². Wenn der Preis schneller wird, steigt die Energie.
-Ein Anstieg der Energie bedeutet: Das Momentum verstärkt sich — nicht nur Drift, sondern echter Schub.
-
-```
-Beispiel: Die Kerzen werden größer. v(t)² > v(t-5)².
-Energie ist um 40% gestiegen.
-→ Zweite Bedingung erfüllt.
-```
-
-**3. In welche Richtung?** *(Beschleunigung)*
-`a(t) = v(t) − v(t−1)` — steigt die Geschwindigkeit oder fällt sie?
-Positiv = Long-Signal. Negativ = Short-Signal.
-
-```
-Beispiel: a(t) = +0.0018 → Aufwärtsbeschleunigung → LONG
-→ Dritte Bedingung erfüllt → Entry bei 43.250 USDT
-   SL: 43.158 (1.5× ATR darunter), TP: 43.432 (3.0× ATR darüber)
-```
-
-### Was passiert danach: Regime-Check (Chaos-Filter)
-
-Bevor der Trade ausgeführt wird, prüft der Bot noch: **In welchem Zustand befindet sich der Markt überhaupt?**
-
-Der Bot analysiert die Phasenraum-Trajektorie — eine dreidimensionale Kurve aus Preis, Geschwindigkeit und Beschleunigung. Damit lässt sich der Marktzustand klassifizieren:
-
-| Zustand | Was passiert im Markt | Beispiel | Trading |
+| # | Frage | Messgröße | Bedingung |
 |---|---|---|---|
-| `trend` | Gleichmäßige, spiralförmige Bewegung im Phasenraum | BTC läuft 3 Tage sauber von 40k auf 45k | Entry erlaubt |
-| `range` | Kurze Schleifen, kein Ausbruch | ETH pendelt wochenlang zwischen 2.200–2.400 | Konfigurierbar |
-| `chaos` | Explosives, unkontrollierbares Springen | Flash-Crash oder News-Spike | **Kein Trading** |
+| ① | Wird der Markt **geordneter**? | Shannon-Entropy der Log-Renditen, `H = −Σ pᵢ·log pᵢ` | `H` fällt um ≥ `min_entropy_drop_pct` ggü. `entropy_lookback` Kerzen vorher |
+| ② | Baut sich **Schwung** auf? | Energie `E = v²` mit `v(t) = p(t) − p(t−1)` | `E` steigt um ≥ `min_energy_rise_pct` ggü. `energy_lookback` Kerzen vorher |
+| ③ | In welche **Richtung**? | Beschleunigung `a(t) = v(t) − v(t−1)` | `a > 0` → **Long**, `a < 0` → **Short** |
 
-```
-Praxis-Beispiel Chaos: BTC fällt in 3 Minuten um 8% (Liquidationskaskade).
-vel_consistency = sehr niedrig → chaos_ratio = sehr hoch → Regime = 'chaos'
-→ Kein Entry, egal wie gut die anderen Signale aussehen.
-```
+Hohe Entropy heißt: Die Renditen sind bunt gemischt, der Markt choppt. Fällt sie, werden die Bewegungen
+gleichförmiger – ein Trend formt sich. Steigt zugleich die Energie, kommt echter Schub dazu statt bloßer Drift.
 
-```
-Marktdaten → Entropy + Energie + Beschleunigung berechnen
-                    ↓
-            Regime-Check (Phasenraum: trend / range / chaos)
-                    ↓
-            Regime = 'chaos' ? → Warten
-            Regime = 'trend' ? → MERS prüft Entry-Bedingungen
-                    ↓
-            Alle 3 Bedingungen erfüllt? → Trade mit ATR-basiertem SL/TP
-```
+### Optionale Filter (pro Config von Optuna an- oder abgeschaltet)
 
-**Nur ein Symbol handelt gleichzeitig.** Wer zuerst ein Signal liefert, tradet — alle anderen warten.
-
----
-
-## Strategie: MDEF-MERS (4 Layer)
-
-### Layer 1 — MERS: Kern-Entry-Bedingungen
-
-Alle drei müssen gleichzeitig erfüllt sein:
-
-| Bedingung | Formel | Bedeutung |
+| Layer | Filter | Wirkung |
 |---|---|---|
-| **Entropy fällt** | `H(t) < H(t−k)` | Markt wird strukturierter → Trend bildet sich |
-| **Energie steigt** | `E(t) > E(t−j)` | Momentum baut sich auf |
-| **Beschleunigung** | `a(t) > 0` → Long / `a(t) < 0` → Short | Richtung des Momentums |
+| Regime | Phasenraum `(p, v, a)` → `trend` / `range` / `chaos` | `chaos` blockiert immer, `range` nur mit `allow_range_trade` |
+| Multi-TF | `sign(p(t) − p(t−T))` auf Mikro-, Meso-, Makro-Skala | nur Einstieg, wenn alle drei in Signalrichtung zeigen |
+| Volumen | Volumen / Ø 20 Kerzen | nur Einstieg bei Volumen ≥ `min_vol_ratio` |
+| FFT | dominante Zyklusperiode | nur informativ (Telegram), kein Filter |
 
-**Long Entry:**  `H(t) < H(t−entropy_lookback)  ∧  E(t) > E(t−energy_lookback)  ∧  a(t) > 0`
-**Short Entry:** `H(t) < H(t−entropy_lookback)  ∧  E(t) > E(t−energy_lookback)  ∧  a(t) < 0`
-
-**State-basierter Exit:**  `H(t) > H(t−1)  ∨  sign(a(t)) ≠ sign(a(t−1))`
-
-### Layer 2 — MDEF: Phasenraum Regime-Check
-
-Klassifiziert den Markt anhand der Phasenraum-Trajektorie `S(t) = (p, v, a)`:
-
-| Regime | Beschreibung | Trading |
-|---|---|---|
-| `trend` | Spiralförmige Trajektorie, konsistentes Momentum | Entry erlaubt |
-| `range` | Cluster/Schleifen, kein klares Momentum | Konfigurierbar |
-| `chaos` | Chaotische Streuung, hohe Instabilität | **Kein Trading** |
-
-Berechnung via `vel_consistency = |mean(v)| / std(v)` und `chaos_ratio = std(a) / std(v)`.
-
-### Layer 3 — MDEF: Multi-Timeframe Resonanz
-
-Handel nur wenn Mikro, Meso und Makro-Zeitskala in dieselbe Richtung zeigen:
+### Stop-Loss, Take-Profit und Größe
 
 ```
-Trend_T = sign(p(t) − p(t−T))
+Long:  SL = Entry − atr_sl_mult × ATR      TP = Entry + atr_tp_mult × ATR
+Short: SL = Entry + atr_sl_mult × ATR      TP = Entry − atr_tp_mult × ATR
 
-Mikro  (Originalzeitraum)        ─┐
-Meso   (meso_tf_mult × Mikro)    ─┼─ alle gleich → Resonanz → Entry
-Makro  (macro_tf_mult × Mikro)   ─┘
+Kontrakte = (Kontostand × risk_per_trade_pct %) / |Entry − SL|     (gedeckelt durch Margin × Hebel)
 ```
 
-### Layer 4 — Frequenzanalyse (FFT, informativ)
+Die aktiven Configs nutzen fast alle einen **sehr engen SL (0,5 × ATR)** und einen **weiten TP (2,75–5,5 × ATR)**.
+Ein Treffer bringt so ein Vielfaches dessen, was ein Fehlsignal kostet – im Bild oben: drei kleine Verluste
+von je ≈ −3 % und ein Long mit **+31 %**.
 
-Dominante Marktzyklusperiode via Fourier-Transformation:
-
-```
-P(f) = Σ p(t) · e^(−2πift/N)
-```
-
-Wird im Signal-Dict und Telegram-Meldung ausgegeben. Kein harter Filter.
+| Strategie | Risiko/Trade | Hebel | SL × ATR | TP × ATR | Filter |
+|---|---|---|---|---|---|
+| XRP/6h | 2,75 % | 17× | 0,5 | 2,75 | – |
+| SOL/1h | 2,75 % | 8× | 0,5 | 5,5 | – |
+| AAVE/1d | 7,0 % | 4× | 2,25 | 5,0 | Regime |
+| BTC/1d | 3,0 % | 10× | 0,5 | 5,5 | Regime + Multi-TF |
+| ARB/1d | 3,0 % | 14× | 0,75 | 2,0 | – |
+| BNB/1d | 3,0 % | 10× | 0,5 | 5,25 | – |
 
 ---
 
-## Mathematik (vollständige Gleichungen)
+## 📈 Ergebnisse
 
-| Konzept | Formel | Implementierung |
-|---|---|---|
-| Log-Rendite | `r(t) = ln(p(t)/p(t−1))` | `calc_log_returns()` |
-| Geschwindigkeit | `v(t) = p(t) − p(t−1)` | `calc_velocity()` |
-| Beschleunigung | `a(t) = v(t) − v(t−1)` | `calc_acceleration()` |
-| Phase-Space | `S(t) = (p(t), v(t), a(t))` | `classify_phase_regime()` |
-| Energie | `E(t) = v(t)²` | `calc_energy()` |
-| Shannon Entropy | `H = −Σ pᵢ·log(pᵢ)` | `calc_rolling_entropy()` |
-| True Range | `TR = max(H−L, \|H−C₋₁\|, \|L−C₋₁\|)` | `calc_atr()` |
-| FFT Periode | `1 / argmax(\|FFT(p)\|)` | `calc_dominant_period()` |
-| MTF Trend | `sign(p(t) − p(t−T))` | `calc_multitf_alignment()` |
+Backtest des **aktiven Portfolios** im gemeinsamen Kapitaltopf, genau so, wie ihn der Auto-Optimizer rechnet
+(Gebühren 0,06 % je Seite, SL/TP-Reihenfolge innerhalb einer Kerze über feinere Kerzen aufgelöst):
 
----
+![Equity und Drawdown des aktiven Portfolios vom 09.04. bis 08.10.2026](docs/readme/portfolio_equity.png)
 
-## SL/TP (ATR-basiert)
+Vier Monate lang passiert wenig, dann tragen ein paar Trades im August/September fast das ganze Ergebnis.
+Genau dieses Muster zeigt auch die Einzelansicht:
 
-```
-ATR(t) = EMA(TR(t), atr_period)
+![Jeder Trade chronologisch: 12 Gewinner +123 USDT, 29 Verlierer −52 USDT](docs/readme/trade_outcomes.png)
 
-Long:  SL = entry − atr_sl_mult × ATR    TP = entry + atr_tp_mult × ATR
-Short: SL = entry + atr_sl_mult × ATR    TP = entry − atr_tp_mult × ATR
+![Beitrag je Strategie: XRP/6h und SOL/1h vorne, ARB/1d ohne Signal im Zeitraum](docs/readme/strategy_contribution.png)
 
-Standard: atr_sl_mult = 1.5  →  atr_tp_mult = 3.0  →  R:R = 1:2
-```
+> Die Parameter der Configs stammen aus März/April 2026 – der Zeitraum danach ist für sie **ungesehen**.
+> Die **Auswahl** der 6 Strategien hat der Optimizer aber auf genau diesen 26 Wochen getroffen; die Zahlen sind
+> damit eher eine Obergrenze als eine Prognose.
 
 ---
 
-## Architektur
+## 🔄 Live-Ablauf
 
+Cron startet `master_runner.py` alle paar Minuten. Jede Strategie läuft als eigener Prozess (`run.py`):
+
+```mermaid
+flowchart TD
+    C([Cron: master_runner.py]) --> O[Auto-Optimizer fällig?<br/>Mi 15:00 → neues Portfolio in settings.json]
+    C --> A{Getrackte Positionen<br/>active_positions.json}
+    A -->|je Position, auch verwaiste| CHK[run.py --mode check]
+    CHK --> P{Position auf<br/>Bitget offen?}
+    P -->|ja| HEAL[Selbstheilung:<br/>SL + TP vorhanden?]
+    P -->|nein, bestätigt| HK[Housekeeper storniert Rest-Trigger<br/>State löschen · Telegram · Kerzen-Cooldown]
+    C --> B{Freie Strategien<br/>max. 10 Positionen}
+    B -->|je Strategie| SIG[run.py --mode signal]
+    SIG --> X{Bitget-Position<br/>schon offen?}
+    X -->|ja| HEAL
+    X -->|nein| CD{Cooldown?}
+    CD -->|nein| M[MERS auf geschlossener Kerze]
+    M -->|Signal| E[Market-Entry → SL-Trigger → TP-Trigger<br/>State + Telegram mit Chart]
 ```
-mbot/
-├── master_runner.py                  # Cronjob-Orchestrator (Global State)
-├── auto_optimizer_scheduler.py       # Auto-Optimizer Zeitplan-Prüfer
-├── run_pipeline.sh                   # Optuna-Optimierung + Config-Training
-├── show_results.sh                   # Analyse-Dashboard (4 Modi)
-├── show_status.sh                    # Live-Status: Trade, Configs, Logs
-├── push_configs.sh                   # Trainierte Configs auf GitHub pushen
-├── run_tests.sh                      # Pytest-Sicherheitscheck
-├── update.sh                         # Git-Update (sichert secret.json)
-├── install.sh                        # Erstinstallation
-├── settings.json                     # Konfiguration (Symbole, Risiko, Signal)
-├── secret.json                       # API-Keys & Telegram (nicht in Git)
-├── artifacts/
-│   ├── tracker/global_state.json     # Aktiver Trade-Status (nicht in Git)
-│   ├── results/last_optimizer_run.json
-│   └── charts/                       # Generierte HTML-Charts
-│
-└── src/mbot/
-    ├── strategy/
-    │   ├── mdef_analysis.py          # MDEF: Entropy, Velocity, Acc, Energy, ATR, FFT, MTF, Regime
-    │   ├── mers_signal.py            # MERS: 4-Layer Signal-Logik + State-Exit
-    │   ├── run.py                    # Pro-Symbol-Runner (signal | check Modus)
-    │   └── configs/
-    │       └── config_*_mers.json    # Optimierte MERS-Configs pro Symbol/TF
-    │
-    ├── analysis/
-    │   ├── backtester.py             # Historische Simulation (ATR-basierte SL/TP)
-    │   ├── optimizer.py              # Optuna — 15 MERS-Parameter optimieren
-    │   ├── portfolio_simulator.py    # Portfolio-Simulation
-    │   ├── interactive_chart.py      # Plotly Charts
-    │   └── show_results.py           # 4-Modus Analyse-Dashboard
-    │
-    └── utils/
-        ├── exchange.py               # Bitget CCXT Wrapper
-        ├── trade_manager.py          # Entry/SL/TP (ATR) + Global State
-        ├── telegram.py               # Benachrichtigungen
-        └── guardian.py               # Crash-Schutz Decorator
-```
+
+Wichtige Regeln, die aus echten Live-Vorfällen stammen:
+
+- **Exchange-Wahrheit statt lokaler Liste.** Positionen werden geprüft, auch wenn ihre Strategie nicht mehr im
+  Portfolio ist (sonst bleiben Geister-Trigger stehen).
+- **„Unbekannt“ ist nie „leer“.** Schlägt der Positions- oder Markt-Abruf fehl, bricht der Zyklus ab – er
+  storniert nichts und löscht keinen State. Der nächste Cron-Lauf versucht es erneut.
+- **Ein Symbol, eine Position.** Vor jedem Entry wird die echte Bitget-Position geprüft, nicht nur der lokale State.
 
 ---
 
-## Optimizer — 16 Parameter (Optuna)
+## 🛡️ Selbstheilung SL/TP
 
-Der Optimizer findet automatisch die besten Werte für alle 16 Parameter — inklusive Hebel und Kapitalrisiko pro Coin/Timeframe-Paar:
+SL und TP sind zwei getrennte Trigger-Orders (kein OCO). Am 07.10.2026 hat ein fehlgeschlagener Markt-Abruf
+dazu geführt, dass der Bot einen offenen BNB-Short für geschlossen hielt und **beide Schutz-Orders stornierte**.
+Seitdem prüft jeder Zyklus aktiv, ob jede offene Position wirklich geschützt ist:
 
-| Parameter | Bereich | Beschreibung |
-|---|---|---|
-| `risk_per_trade_pct` | 1–100% | Anteil des Kapitals pro Trade |
-| `leverage` | 1–30x | Hebel — wird pro Coin/TF individuell optimiert |
-| `entropy_window` | 10–60 | Rollierendes Fenster für Shannon Entropy |
-| `entropy_lookback` | 3–25 | Kerzen zurück für Entropy-Vergleich |
-| `energy_lookback` | 3–25 | Kerzen zurück für Energie-Vergleich |
-| `min_entropy_drop_pct` | 0.01–0.35 | Minimaler relativer Entropy-Abfall |
-| `min_energy_rise_pct` | 0.05–1.50 | Minimaler relativer Energie-Anstieg |
-| `atr_period` | 7–28 | ATR-Berechnungsperiode |
-| `atr_sl_mult` | 0.5–3.0 | SL-Abstand = Mult × ATR |
-| `atr_tp_mult` | > atr_sl_mult, max 6.0 | TP-Abstand = Mult × ATR |
-| `use_regime_filter` | 0 / 1 | Phasenraum Regime-Check aktivieren |
-| `regime_window` | 10–40 | Fenster für Regime-Klassifikation |
-| `allow_range_trade` | 0 / 1 | Trading auch im Range-Regime erlauben |
-| `use_multitf_filter` | 0 / 1 | Multi-Timeframe Filter aktivieren |
-| `meso_tf_mult` | 2–8 | Meso-Zeitskala (z.B. 4 → 15m×4 = 1h) |
-| `macro_tf_mult` | 8–32 | Makro-Zeitskala (z.B. 16 → 15m×16 = 4h) |
-
-> BTC/1h bekommt z.B. 5x Hebel mit 80% Kapital, ETH/15m 18x mit 25% — je nachdem was historisch am besten funktioniert hat.
-
----
-
-## Konfiguration (`settings.json`)
-
-```json
-{
-    "risk": {
-        "leverage": 20,
-        "margin_mode": "isolated"
-    },
-    "signal": {
-        "leverage": 20,
-        "risk_per_trade_pct": 100,
-        "entropy_window": 20,
-        "entropy_lookback": 10,
-        "energy_lookback": 5,
-        "min_entropy_drop_pct": 0.05,
-        "min_energy_rise_pct": 0.20,
-        "atr_period": 14,
-        "atr_sl_mult": 1.5,
-        "atr_tp_mult": 3.0,
-        "use_regime_filter": 1,
-        "regime_window": 20,
-        "allow_range_trade": 0,
-        "use_multitf_filter": 0,
-        "meso_tf_mult": 4,
-        "macro_tf_mult": 16
-    }
-}
+```mermaid
+flowchart LR
+    S[Offene Position<br/>auf Bitget] --> T{Trigger-Orders<br/>abrufbar?}
+    T -->|Fehler| N[nichts tun,<br/>nächster Lauf]
+    T -->|ja| K{SL und TP<br/>vorhanden?}
+    K -->|ja| OK([fertig])
+    K -->|nein| L[Level bestimmen:<br/>aus State, sonst aus Config<br/>ATR der Kerze vor Entry]
+    L --> H{Kurs schon<br/>jenseits SL/TP?}
+    H -->|ja| CL[Position sofort schließen<br/>wie der Backtest]
+    H -->|nein| PL[fehlende Trigger neu setzen<br/>+ wieder tracken]
+    CL --> TG[🛠️ Telegram]
+    PL --> TG
 ```
 
+Live verifiziert am BNB-Short: SL **797,34** und TP **668,49** wurden neu gesetzt (Original 797,49 / 668,64),
+ein zweiter Lauf setzte nichts doppelt.
+
 ---
 
-## Installation
+## 💬 Telegram
 
-#### Voraussetzungen
+| Ereignis | Nachricht |
+|---|---|
+| Neuer Trade | `🚀 mbot SIGNAL` mit Richtung, Entry, SL/TP in %, R:R, Hebel, Risiko in USDT + Chart |
+| Trade geschlossen | `✅ mbot TRADE GESCHLOSSEN` mit Entry, SL, TP, Haltebeginn |
+| Schutz repariert | `🛠️ mbot Selbstheilung` – was fehlte und was neu gesetzt bzw. geschlossen wurde |
+| Optimizer | `🔍 GESTARTET` und `✅ abgeschlossen` mit neuem aktivem Portfolio |
+| Absturz | kritischer Alarm aus dem `guardian`-Decorator |
 
-- Python 3.10+
-- Git
-- Bitget-Account mit API-Zugang (Futures / Perpetual)
-- Telegram-Bot (via [@BotFather](https://t.me/BotFather))
+---
 
-#### Schritt 1 — Repository klonen
+## 🧰 Installation
+
+**Voraussetzungen:** Python 3.10+, Git, Bitget-Account mit Futures-API, Telegram-Bot ([@BotFather](https://t.me/BotFather)).
 
 ```bash
 git clone https://github.com/Youra82/mbot.git
 cd mbot
-```
-
-#### Schritt 2 — Installieren
-
-```bash
-chmod +x install.sh && bash ./install.sh
-```
-
-Das Skript erstellt automatisch:
-- `.venv/` — Python Virtual Environment mit allen Abhängigkeiten
-- `logs/` — Log-Verzeichnis
-- `artifacts/tracker/` — Global-State-Verzeichnis
-
-#### Schritt 3 — API-Keys eintragen
-
-```bash
+chmod +x install.sh && bash ./install.sh      # legt .venv/, logs/, artifacts/tracker/ an
 nano secret.json
 ```
 
@@ -313,326 +190,102 @@ nano secret.json
 }
 ```
 
-> `password` = Bitget Passphrase (nicht das Login-Passwort)
+> `password` ist die Bitget-**Passphrase** des API-Keys, nicht das Login-Passwort.
+> Der Key sollte nur von mbot benutzt werden – `cancel_all_orders` wirkt auf alle Orders eines Symbols.
 
-#### Schritt 4 — Symbole und Risiko konfigurieren
-
-`settings.json` anpassen — Symbole aktivieren/deaktivieren, Hebel, Margin-Mode setzen.
-
-#### Schritt 5 — Parameter optimieren
-
-```bash
-./run_pipeline.sh
-```
-
-Optuna optimiert alle 15 MERS-Parameter auf historischen Daten und schreibt die Configs nach `src/mbot/strategy/configs/`.
-
-#### Schritt 6 — Cronjob einrichten (VPS / Linux)
-
-```bash
-crontab -e
-```
+Cronjob (VPS):
 
 ```cron
-# 15m-Strategie → alle 5 Minuten
-*/5 * * * * /usr/bin/flock -n /root/mbot/mbot.lock /bin/sh -c "cd /root/mbot && .venv/bin/python3 master_runner.py >> /root/mbot/logs/cron.log 2>&1"
-```
-
-#### Schritt 7 — Status prüfen
-
-```bash
-./show_status.sh
+*/5 * * * * /usr/bin/flock -n /home/<user>/mbot/mbot.lock /bin/sh -c "cd /home/<user>/mbot && .venv/bin/python3 master_runner.py >> logs/cron.log 2>&1"
 ```
 
 ---
 
-## Workflow
+## 🔧 Workflow
 
-#### 1. MERS-Parameter optimieren
-
-```bash
-./run_pipeline.sh
+```mermaid
+flowchart LR
+    P[run_pipeline.sh<br/>Optuna je Coin × TF] --> R[show_results.sh<br/>Einzel / Portfolio / Charts]
+    R --> G[push_configs.sh<br/>Configs → GitHub]
+    G --> U[VPS: update.sh]
+    U --> L([Live: master_runner])
+    L -. Mi 15:00 .-> AO[Auto-Optimizer<br/>wählt Portfolio aus Configs]
+    AO -.-> L
 ```
 
-Optuna optimiert alle 15 MERS-Parameter auf historischen Daten. Ergebnis: `config_*_mers.json` in `src/mbot/strategy/configs/`.
-
-#### 2. Ergebnisse analysieren
-
-```bash
-./show_results.sh
-```
-
-| Modus | Funktion |
-|---|---|
-| **1) Einzel-Analyse** | Jede Strategie isoliert backtesten |
-| **2) Manuelle Portfolio-Simulation** | Eigene Strategieauswahl |
-| **3) Auto Portfolio-Optimierung** | Bot findet bestes Strategie-Team |
-| **4) Interaktive Charts** | Plotly Candlestick + Entry/Exit + Equity-Kurve |
-
-#### 3. Tests
-
-```bash
-./run_tests.sh
-```
-
-#### 4. Configs pushen (für VPS)
-
-```bash
-./push_configs.sh
-```
-
-#### 5. Cronjob einrichten
-
-```bash
-crontab -e
-```
-
-```cron
-# 15m-Strategie → alle 5 Minuten
-*/5 * * * * /usr/bin/flock -n /root/mbot/mbot.lock /bin/sh -c "cd /root/mbot && .venv/bin/python3 master_runner.py >> /root/mbot/logs/cron.log 2>&1"
-```
-
----
-
-## Global State — Nur ein Trade gleichzeitig
-
-```
-master_runner.py (Cronjob)
-    │
-    ├── global_state.active_symbol gesetzt?
-    │       ├── JA  → run.py --mode check
-    │       │           MERS State-Exit prüfen (Entropy/Acc gedreht?)
-    │       │           Position noch offen? → warten
-    │       │           Position geschlossen? → State löschen, Telegram
-    │       │
-    │       └── NEIN → run.py --mode signal (jedes Symbol sequenziell)
-    │                   MDEF-MERS Signal? → Entry + SL/TP → State setzen
-```
-
----
-
-## Telegram-Nachrichten
-
-**Neuer Trade:**
-```
-mbot MERS - NEUER TRADE
-
-Symbol:    BTC/USDT:USDT (15m)
-Richtung:  LONG
-Entry:     43250.0000 USDT
-SL:        43158.5000 (0.21% Preis)
-TP:        43433.0000 (0.42% Preis)
-R:R:       1:2.0
-Hebel:     20x | Kapital: 100.00 USDT
-Kontrakte: 0.0462
-
-Signal: MERS: Entropy-12.3% Energie+34.5% AccUP0.001234 ATR=91.5 | Regime=trend | FFT-Periode=20K
-```
-
-**State-Exit (vor SL/TP):**
-```
-mbot MERS - STATE EXIT
-
-Symbol:  BTC/USDT:USDT (15m)
-Grund:   Entropy steigt / Beschleunigung dreht
-(MERS state-basierter Exit vor SL/TP)
-```
-
----
-
-## Auto-Optimizer manuell auslösen
-
-```bash
-# Scheduler direkt starten (prüft ob fällig, hält sich an enabled + Schedule)
-.venv/bin/python3 auto_optimizer_scheduler.py
-
-# Sofort erzwingen — ignoriert enabled und Schedule (für Tests)
-.venv/bin/python3 auto_optimizer_scheduler.py --force
-```
-
-`--force` überspringt den `enabled`-Check und den Zeitplan-Check. Nützlich um nach einer Konfigurationsänderung direkt zu testen, ob der Ablauf korrekt funktioniert.
-
----
-
-## Replot — Charts neu generieren (ohne Re-Optimierung)
-
-Das aktive Portfolio erneut simulieren und Equity-Chart + Trades-Excel via Telegram senden — ohne die komplette Optimierung neu durchzuführen:
-
-```bash
-.venv/bin/python3 run_portfolio_optimizer.py --replot
-```
-
-Optionale Parameter (werden sonst aus `settings.json` gelesen):
-```bash
-.venv/bin/python3 run_portfolio_optimizer.py --replot --capital 200 --start-date 2024-01-01 --end-date 2025-01-01
-```
-
-Nützlich z.B. nach einem Bot-Update, um die aktuellen Charts zu erneuern, ohne stundenlange Neuberechnung.
-
----
-
-## Chart-Simulation
-
-Aktuellen Kerzendiagramm-Chart mit simulierten Entry/SL/TP-Levels per Telegram senden — **ohne echten Trade**. Zeigt MERS-Infobox (Regime, Entropy, Energy, R:R) und Risiko/Reward-Zonen.
-
-```bash
-# Alle aktiven Strategien aus settings.json
-.venv/bin/python show_chart.py
-
-# Einzelnes Symbol/Timeframe
-.venv/bin/python show_chart.py --symbol SOL/USDT:USDT --timeframe 1h
-
-# Richtung erzwingen (ignoriert MERS-Signal)
-.venv/bin/python show_chart.py --symbol SOL/USDT:USDT --timeframe 1h --side long
-```
-
-Hat das Symbol ein aktives MERS-Signal, werden echte Entry/SL/TP-Werte verwendet. Andernfalls wird der letzte Schlusskurs mit ATR-basiertem SL/TP simuliert.
-
----
-
-## Master Runner manuell ausführen
-
-```bash
-# Master Runner einmalig manuell starten (wie der Cronjob)
-.venv/bin/python3 master_runner.py
-```
-
----
-
-## Tägliche Verwaltung
-
-```bash
-# Status-Dashboard (Trade, Configs, Logs auf einen Blick)
-./show_status.sh
-
-# Logs
-tail -f logs/cron.log
-tail -f logs/master_runner.log
-
-# Aktiven Trade
-cat artifacts/tracker/global_state.json
-
-# Global State manuell zurücksetzen
-echo '{"active_symbol":null,"active_timeframe":null,"active_since":null,"entry_price":null,"side":null,"sl_price":null,"tp_price":null,"contracts":null}' > artifacts/tracker/global_state.json
-
-# Bot aktualisieren
-./update.sh
-```
-
----
-
-## Coin & Timeframe Empfehlungen
-
-MBot ist eine **Entropy-basierte Strategie** — er erkennt den Übergang von einem chaotischen (ungeordneten) in einen geordneten Marktzustand anhand von Shannon-Entropie, kinetischer Energie (Preisimpuls²) und Beschleunigung. Benötigt: klare Regime-Übergänge von Konsolidierung zu Trend.
-
-### Effektive Zeitspannen je Timeframe
-
-| TF | Entropy(20K) | Energy(5K) | ATR(14) | Regime-Auflösung | Geeignet |
-|---|---|---|---|---|---|
-| 15m | 5h | 75min | 3.5h | Zu kurz — Noise dominiert | ❌ |
-| 30m | 10h | 2.5h | 7h | Marginal | ⚠️ |
-| **1h** | **20h** | **5h** | **14h** | **Gut** | **✅✅** |
-| **2h** | **40h** | **10h** | **28h** | **Sehr gut** | **✅✅** |
-| **4h** | **80h** | **20h** | **56h** | **Exzellent** | **✅✅** |
-| 6h | 120h | 30h | 84h | Gut, aber langsamer | ✅ |
-| 1d | 20d | 5d | 14d | Zu träge | ⚠️ |
-
-Auf 15m misst die Entropie nur 5h Marktgeschehen — statistisch zu wenig. Der Energy-Lookback von 5 Kerzen entspricht auf 15m nur 75 Minuten (Noise statt echtem Impuls). Ab 1h werden Entropie und Energie statistisch aussagekräftig.
-
-### Coin-Eignung
-
-| Coin | Regime-Übergänge | Entropie-Verhalten | Impuls-Klarheit | Bewertung |
-|---|---|---|---|---|
-| **BTC** | Klassisch: Konsolidierung → Breakout → Trend | Entropie fällt klar vor Bewegung | Starker, messbarer Impuls | ✅✅ Beste Wahl |
-| **ETH** | Ähnlich BTC, etwas schnellere Übergänge | Gutes Entropie-Signal | Klarer Impuls | ✅✅ Sehr gut |
-| **SOL** | Starke Trending-Phasen nach Konsolidierung | Klare Entropie-Reduktion | Hoher Impuls | ✅ Gut |
-| **BNB** | Moderate Übergänge, stabil | Sauberes Entropie-Profil | Mittlerer Impuls | ✅ Gut |
-| **AVAX** | Gute Regime-Übergänge in Bullphasen | Solides Signal | Guter Impuls | ✅ Gut |
-| **ARB** | ETH-korreliert, klare Phasen | Gut | Mittlerer Impuls | ✅ Gut |
-| **LTC** | BTC-korreliert, moderate Übergänge | Solide | Mittlerer Impuls | ⚠️ Mittel |
-| **XRP** | Vorhanden, aber unregelmäßig | Mittel | Mittel | ⚠️ Mittel |
-| **ADA** | Sehr träge Übergänge | Entropie-Änderungen klein | Schwacher Impuls | ⚠️ Schwach |
-| **DOGE** | Sentiment-getrieben, kein strukturiertes Regime | Entropie dauerhaft chaotisch | Unkontrollierbarer Impuls | ❌ Schlecht |
-| **SHIB/PEPE** | Keine echten Regime-Übergänge | Dauerhaft hohes Chaos | Kein messbarer Impuls | ❌❌ Nicht geeignet |
-
-### Empfohlene Kombinationen (Ranking)
-
-| Rang | Kombination | Begründung |
+| Schritt | Befehl | Ergebnis |
 |---|---|---|
-| 🥇 1 | **BTC 1h / 2h** | Klarste Entropie-Reduktion vor Breakouts, starker Impuls |
-| 🥇 1 | **ETH 1h / 2h** | Ähnlich BTC, gute Regime-Erkennung |
-| 🥈 2 | **SOL 1h** | Explosive Impuls-Phasen nach klarer Konsolidierung |
-| 🥉 3 | **BNB 2h** | Stabile, vorhersehbare Regime-Übergänge |
-| 4 | **AVAX 2h** | Gute Bullmarkt-Performance |
-| 4 | **ARB 1h** | ETH-korreliert, klare Bewegungen |
-| ❌ | **Alles auf 15m** | Entropie-Fenster (5h) zu kurz für statistisch valide Messung |
-| ❌ | **DOGE / SHIB** | Kein strukturiertes Entropie-Verhalten erkennbar |
+| Optimieren | `./run_pipeline.sh` | `src/mbot/strategy/configs/config_<SYMBOL>_<TF>_mers.json` |
+| Auswerten | `./show_results.sh` | 1) Einzel-Analyse · 2) manuelles Portfolio · 3) Auto-Portfolio · 4) interaktive Charts |
+| Tests | `./run_tests.sh` | Pytest-Sicherheitscheck |
+| Configs pushen | `./push_configs.sh` | Commit + Push der Configs |
+| Portfolio sofort neu wählen | `.venv/bin/python3 auto_optimizer_scheduler.py --force` | neues `active_strategies` + Telegram |
+| Charts neu ohne Optimierung | `.venv/bin/python3 run_portfolio_optimizer.py --replot` | Equity-HTML + Trades-Excel per Telegram |
+| Chart-Vorschau ohne Trade | `.venv/bin/python show_chart.py --symbol SOL/USDT:USDT --timeframe 1h` | Kerzenchart mit Entry/SL/TP |
 
-> **Hinweis:** Das Regime-Filter (Layer 2, `use_regime_filter: 1`) sollte aktiv sein. Im CHAOS-Regime werden alle Trades blockiert — der wichtigste Schutz gegen Fehlsignale bei Pumps und Meme-Coins.
+### Optimizer – Suchraum (Optuna)
 
-
----
-
-## Coin & Timeframe Empfehlungen
-
-MBot ist eine **Entropy-basierte Strategie** — er erkennt den Übergang von einem chaotischen (ungeordneten) in einen geordneten Marktzustand anhand von Shannon-Entropie, kinetischer Energie (Preisimpuls²) und Beschleunigung. Benötigt: klare Regime-Übergänge von Konsolidierung zu Trend.
-
-### Effektive Zeitspannen je Timeframe
-
-| TF | Entropy(20K) | Energy(5K) | ATR(14) | Regime-Auflösung | Geeignet |
-|---|---|---|---|---|---|
-| 15m | 5h | 75min | 3.5h | Zu kurz — Noise dominiert | ❌ |
-| 30m | 10h | 2.5h | 7h | Marginal | ⚠️ |
-| **1h** | **20h** | **5h** | **14h** | **Gut** | **✅✅** |
-| **2h** | **40h** | **10h** | **28h** | **Sehr gut** | **✅✅** |
-| **4h** | **80h** | **20h** | **56h** | **Exzellent** | **✅✅** |
-| 6h | 120h | 30h | 84h | Gut, aber langsamer | ✅ |
-| 1d | 20d | 5d | 14d | Zu träge | ⚠️ |
-
-Auf 15m misst die Entropie nur 5h Marktgeschehen — statistisch zu wenig. Der Energy-Lookback von 5 Kerzen entspricht auf 15m nur 75 Minuten (Noise statt echtem Impuls). Ab 1h werden Entropie und Energie statistisch aussagekräftig.
-
-### Coin-Eignung
-
-| Coin | Regime-Übergänge | Entropie-Verhalten | Impuls-Klarheit | Bewertung |
+| Parameter | Bereich | | Parameter | Bereich |
 |---|---|---|---|---|
-| **BTC** | Klassisch: Konsolidierung → Breakout → Trend | Entropie fällt klar vor Bewegung | Starker, messbarer Impuls | ✅✅ Beste Wahl |
-| **ETH** | Ähnlich BTC, etwas schnellere Übergänge | Gutes Entropie-Signal | Klarer Impuls | ✅✅ Sehr gut |
-| **SOL** | Starke Trending-Phasen nach Konsolidierung | Klare Entropie-Reduktion | Hoher Impuls | ✅ Gut |
-| **BNB** | Moderate Übergänge, stabil | Sauberes Entropie-Profil | Mittlerer Impuls | ✅ Gut |
-| **AVAX** | Gute Regime-Übergänge in Bullphasen | Solides Signal | Guter Impuls | ✅ Gut |
-| **ARB** | ETH-korreliert, klare Phasen | Gut | Mittlerer Impuls | ✅ Gut |
-| **LTC** | BTC-korreliert, moderate Übergänge | Solide | Mittlerer Impuls | ⚠️ Mittel |
-| **XRP** | Vorhanden, aber unregelmäßig | Mittel | Mittel | ⚠️ Mittel |
-| **ADA** | Sehr träge Übergänge | Entropie-Änderungen klein | Schwacher Impuls | ⚠️ Schwach |
-| **DOGE** | Sentiment-getrieben, kein strukturiertes Regime | Entropie dauerhaft chaotisch | Unkontrollierbarer Impuls | ❌ Schlecht |
-| **SHIB/PEPE** | Keine echten Regime-Übergänge | Dauerhaft hohes Chaos | Kein messbarer Impuls | ❌❌ Nicht geeignet |
-
-### Empfohlene Kombinationen (Ranking)
-
-| Rang | Kombination | Begründung |
-|---|---|---|
-| 🥇 1 | **BTC 1h / 2h** | Klarste Entropie-Reduktion vor Breakouts, starker Impuls |
-| 🥇 1 | **ETH 1h / 2h** | Ähnlich BTC, gute Regime-Erkennung |
-| 🥈 2 | **SOL 1h** | Explosive Impuls-Phasen nach klarer Konsolidierung |
-| 🥉 3 | **BNB 2h** | Stabile, vorhersehbare Regime-Übergänge |
-| 4 | **AVAX 2h** | Gute Bullmarkt-Performance |
-| 4 | **ARB 1h** | ETH-korreliert, klare Bewegungen |
-| ❌ | **Alles auf 15m** | Entropie-Fenster (5h) zu kurz für statistisch valide Messung |
-| ❌ | **DOGE / SHIB** | Kein strukturiertes Entropie-Verhalten erkennbar |
-
-> **Hinweis:** Das Regime-Filter (Layer 2, `use_regime_filter: 1`) sollte aktiv sein. Im CHAOS-Regime werden alle Trades blockiert — der wichtigste Schutz gegen Fehlsignale bei Pumps und Meme-Coins.
-
+| `entropy_window` | 10–60 | | `atr_period` | 7–28 |
+| `entropy_lookback` | 3–25 | | `atr_sl_mult` | 0,5–3,0 |
+| `energy_lookback` | 3–25 | | `atr_tp_mult` | SL + 0,5 … 6,0 |
+| `min_entropy_drop_pct` | 0,01–0,35 | | `use_regime_filter` / `allow_range_trade` | 0 / 1 |
+| `min_energy_rise_pct` | 0,05–1,50 | | `regime_window` | 10–40 |
+| `leverage` | 5–20 | | `use_multitf_filter` (`meso`/`macro_tf_mult`) | 0 / 1 |
+| `risk_per_trade_pct` | 0,5–3,0 % | | `use_volume_filter` (`min_vol_ratio` 0,5–2,5) | 0 / 1 |
 
 ---
 
-## Abhängigkeiten
+## 🗂️ Architektur
 
 ```
-ccxt==4.3.5      # Exchange-Verbindung (Bitget)
-pandas==2.1.3    # Datenverarbeitung
-numpy            # Array-Operationen, FFT
-optuna==4.5.0    # MERS-Parameter Optimierung (15 Parameter)
-requests==2.31.0 # Telegram
-plotly           # Interaktive Charts
-pytest           # Tests
+mbot/
+├── master_runner.py              # Cron-Orchestrator: check für alle Positionen, signal für freie Strategien
+├── auto_optimizer_scheduler.py   # Mittwochs Portfolio-Auswahl (26 Wochen rollend)
+├── run_portfolio_optimizer.py    # Backtests aller Configs + Greedy-Portfolio → settings.json
+├── run_pipeline.sh / show_results.sh / push_configs.sh / update.sh / install.sh
+├── settings.json                 # Portfolio, Risiko-Defaults, Optimizer-Zeitplan
+├── secret.json                   # API-Keys + Telegram (nicht in Git)
+├── artifacts/tracker/            # active_positions.json, candle_cooldowns.json (nicht in Git)
+├── docs/readme/                  # Grafiken dieser README
+└── src/mbot/
+    ├── strategy/  mers_signal.py · mdef_analysis.py · run.py · configs/
+    ├── analysis/  backtester.py · optimizer.py · portfolio_simulator.py · interactive_chart.py
+    └── utils/     exchange.py · trade_manager.py (Entry, SL/TP, Housekeeper, Selbstheilung) · telegram.py · guardian.py
 ```
+
+---
+
+## 🩺 Wartung
+
+```bash
+./show_status.sh                                   # Positionen, Configs, Logs auf einen Blick
+tail -f logs/master_runner.log                     # Orchestrator
+tail -f logs/mbot_BNBUSDTUSDT_1d.log               # eine Strategie
+cat artifacts/tracker/active_positions.json        # was der Bot gerade verfolgt
+./update.sh                                        # Git-Stand holen (secret.json bleibt erhalten)
+```
+
+> `update.sh` setzt das Repo hart auf `origin/main` zurück. Das Portfolio in `settings.json` kommt damit
+> aus GitHub – Änderungen nur auf dem VPS gehen beim nächsten Update verloren.
+
+---
+
+## ⚠️ Risiken
+
+- **Wenige Gewinner tragen alles.** Bei ~29 % Trefferquote sind 10+ Verluste in Folge im Backtest normal. Wer
+  in einer Verlustserie abschaltet, verpasst den Trade, der sie bezahlt.
+- **Auswahl-Optimismus.** Das Portfolio wird auf denselben 26 Wochen gewählt, die oben gezeigt werden.
+- **Kleine Stichprobe.** 41 Trades in 26 Wochen; AAVE/1d hatte 1 Trade, ARB/1d keinen.
+- **Enger SL mit Hebel.** 0,5 × ATR wird oft vom Rauschen getroffen; Slippage am SL ist im Backtest nur pauschal enthalten.
+- **Getrennte Trigger statt OCO.** Schutz hängt an zwei Orders – deshalb die Selbstheilung.
+
+> **Disclaimer:** Experimentelle Software zu Forschungszwecken. Der Handel mit Krypto-Derivaten kann zum
+> Totalverlust führen. Nutzung auf eigene Gefahr.
+
+---
+
+## 📦 Abhängigkeiten
+
+`ccxt==4.3.5` · `pandas==2.1.3` · `numpy` · `ta==0.11.0` · `optuna==4.5.0` · `requests==2.31.0` · `plotly` · `openpyxl` · `matplotlib` · `pytest`
