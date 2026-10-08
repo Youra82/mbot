@@ -607,8 +607,144 @@ def housekeeper_routine(exchange, symbol: str, logger: logging.Logger) -> bool:
         return False
 
 
+def _reconstruct_sl_tp(exchange, symbol: str, timeframe: str, side: str,
+                       entry_price: float, entry_ts_ms: int, signal_config: dict):
+    """SL/TP wie beim Entry rekonstruieren: ATR der letzten geschlossenen Kerze VOR
+    dem Entry (wie run.py df.iloc[:-1]) x atr_sl_mult / atr_tp_mult aus der Config."""
+    import pandas as pd
+    from mbot.strategy.mdef_analysis import calc_atr
+    atr_period  = int(signal_config.get('atr_period', 14))
+    atr_sl_mult = float(signal_config.get('atr_sl_mult', 1.5))
+    atr_tp_mult = float(signal_config.get('atr_tp_mult', 3.0))
+    df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
+    if df.empty:
+        return None, None
+    tf_ms = exchange.exchange.parse_timeframe(timeframe) * 1000
+    if entry_ts_ms:
+        # Kerze, in der der Entry lag, und alles danach entfernen
+        entry_candle = pd.to_datetime((entry_ts_ms // tf_ms) * tf_ms, unit='ms', utc=True)
+        df = df[df.index < entry_candle]
+    else:
+        df = df.iloc[:-1]
+    if len(df) <= atr_period:
+        return None, None
+    atr_ser = calc_atr(df, period=atr_period)
+    atr = float(atr_ser.iloc[-1])
+    if not (atr > 0):
+        return None, None
+    if side == 'long':
+        return entry_price - atr_sl_mult * atr, entry_price + atr_tp_mult * atr
+    return entry_price + atr_sl_mult * atr, entry_price - atr_tp_mult * atr
+
+
+def ensure_position_protected(exchange, symbol: str, timeframe: str, signal_config: dict,
+                              telegram_config: dict, logger: logging.Logger) -> bool:
+    """
+    Selbstheilung: Ist auf der Exchange eine Position offen, aber SL und/oder TP
+    fehlen (z.B. von einem fehlerhaften Housekeeper-Lauf storniert, BNB-Vorfall
+    2026-10-07), werden die fehlenden Trigger neu gesetzt. Ist der SL/TP-Kurs
+    bereits ueberschritten, wird die Position sofort geschlossen (wie es der
+    Backtester getan haette). Nicht getrackte Positionen werden wieder in den
+    State aufgenommen, damit der Check-Zyklus sie weiter ueberwacht.
+
+    Returns True, wenn auf der Exchange eine Position fuer symbol offen ist.
+    """
+    positions = exchange.fetch_open_positions(symbol)
+    if not positions:
+        return False
+
+    p         = positions[0]
+    info      = p.get('info') or {}
+    side      = p.get('side')
+    contracts = abs(float(p.get('contracts') or 0))
+    entry     = float(p.get('entryPrice') or 0)
+    mark      = float(p.get('markPrice') or info.get('markPrice') or entry)
+    if side not in ('long', 'short') or contracts <= 0 or entry <= 0:
+        logger.error(f"Selbstheilung {symbol}: Positionsdaten unvollstaendig ({info}).")
+        return True
+
+    try:
+        triggers = exchange.fetch_open_trigger_orders(symbol)
+    except Exception as e:
+        logger.error(f"Selbstheilung {symbol}: Trigger-Orders nicht abrufbar ({e}) - keine Aktion.")
+        return True
+
+    has_sl = has_tp = False
+    for o in triggers:
+        pos_side = (o.get('info') or {}).get('posSide')
+        if pos_side and pos_side != side:
+            continue
+        trig = float(o.get('triggerPrice') or o.get('stopPrice') or 0)
+        if trig <= 0:
+            continue
+        is_sl = trig < mark if side == 'long' else trig > mark
+        has_sl = has_sl or is_sl
+        has_tp = has_tp or not is_sl
+
+    if has_sl and has_tp:
+        return True
+
+    missing = ' + '.join(x for x, ok in (('SL', has_sl), ('TP', has_tp)) if not ok)
+    logger.warning(f"Selbstheilung {symbol}: {side.upper()}-Position ohne {missing}!")
+
+    # Ziel-SL/TP: aus State (falls noch getrackt), sonst aus Config rekonstruieren
+    state = read_position(symbol, timeframe)
+    if state is None:
+        state = next((x for x in read_active_positions() if x.get('symbol') == symbol), None)
+    sl_price = tp_price = None
+    if state and state.get('side') == side:
+        sl_price, tp_price = state.get('sl_price'), state.get('tp_price')
+    if not sl_price or not tp_price:
+        entry_ts = int(p.get('timestamp') or info.get('cTime') or 0)
+        sl_price, tp_price = _reconstruct_sl_tp(exchange, symbol, timeframe, side,
+                                                entry, entry_ts, signal_config)
+    if not sl_price or not tp_price:
+        msg = (f"🚨 mbot {symbol}: {side.upper()}-Position OHNE {missing} - "
+               f"SL/TP nicht rekonstruierbar, bitte manuell pruefen!")
+        logger.critical(msg)
+        send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
+        return True
+
+    close_side = 'sell' if side == 'long' else 'buy'
+    sl_hit = (mark <= sl_price) if side == 'long' else (mark >= sl_price)
+    tp_hit = (mark >= tp_price) if side == 'long' else (mark <= tp_price)
+
+    if (not has_sl and sl_hit) or (not has_tp and tp_hit):
+        reason, level = ('SL', sl_price) if sl_hit else ('TP', tp_price)
+        logger.warning(f"Selbstheilung {symbol}: {reason} {level:.4f} bereits ueberschritten "
+                       f"(Mark {mark:.4f}) - schliesse Position.")
+        exchange.cancel_all_orders_for_symbol(symbol)
+        exchange.close_position(symbol)
+        clear_position(symbol, timeframe)
+        msg = (f"🛠️ mbot Selbstheilung {symbol} ({timeframe})\n"
+               f"{side.upper()} hatte keinen {missing}, Kurs {mark:.4f} lag schon jenseits "
+               f"{reason} {level:.4f} -> Position geschlossen.")
+        send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
+        return True
+
+    placed = []
+    if not has_sl:
+        exchange.place_trigger_market_order(symbol, close_side, contracts, sl_price, reduce=True)
+        placed.append(f"SL @ {sl_price:.4f}")
+    if not has_tp:
+        exchange.place_trigger_market_order(symbol, close_side, contracts, tp_price, reduce=True)
+        placed.append(f"TP @ {tp_price:.4f}")
+
+    if not any(x.get('symbol') == symbol for x in read_active_positions()):
+        claim_position(symbol, timeframe, side, entry, sl_price, tp_price, contracts)
+        placed.append("wieder getrackt")
+
+    logger.warning(f"Selbstheilung {symbol}: {' | '.join(placed)}")
+    msg = (f"🛠️ mbot Selbstheilung {symbol} ({timeframe})\n"
+           f"{side.upper()} {contracts} @ {entry} war ohne {missing}.\n"
+           f"Neu gesetzt: {', '.join(placed)}")
+    send_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), msg)
+    return True
+
+
 def check_position_status(exchange, symbol: str, timeframe: str,
-                           telegram_config: dict, logger: logging.Logger):
+                           telegram_config: dict, logger: logging.Logger,
+                           signal_config: dict | None = None):
     """
     Prueft ob die aktive Position noch offen ist.
     Falls nicht mehr offen: Housekeeper ausfuehren (loescht auch Ghost-Trigger),
@@ -629,6 +765,8 @@ def check_position_status(exchange, symbol: str, timeframe: str,
             f"Position fuer {symbol} noch offen: {pos_side.upper()} "
             f"| Entry: {entry_p} | Unrealized PnL: {unr_pnl:.2f} USDT"
         )
+        ensure_position_protected(exchange, symbol, timeframe, signal_config or {},
+                                  telegram_config, logger)
         return
 
     # Keine offene Position auf der Exchange -> Ghost-Trigger und verwaiste Orders bereinigen

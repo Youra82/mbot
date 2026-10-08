@@ -123,8 +123,10 @@ class Exchange:
         geschlossen" lesen und dann echte, noch aktive SL/TP-Trigger stornieren, waehrend
         die Position auf der Exchange ungeschuetzt weiterlaeuft (Liquidations-Risiko).
         """
-        if not self.markets:
-            return []
+        # Maerkte beim Start nicht geladen (API-Hickser) -> NICHT still [] liefern,
+        # sonst haelt der Check-Zyklus die Position fuer geschlossen und der
+        # Housekeeper storniert die echten SL/TP-Trigger (BNB-Vorfall 2026-10-07).
+        self._ensure_markets()
         params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
         last_err = None
         for attempt in range(2):
@@ -146,6 +148,34 @@ class Exchange:
                     time.sleep(2)
         logger.error(f"Fehler beim Abrufen offener Positionen fuer {symbol}: {last_err}", exc_info=True)
         raise last_err
+
+    def _ensure_markets(self):
+        """Laedt die Maerkte nach, falls sie beim Start fehlten; wirft bei Fehlschlag."""
+        if self.markets:
+            return
+        last_err = None
+        for attempt in range(2):
+            try:
+                self.markets = self.exchange.load_markets()
+                return
+            except Exception as e:
+                last_err = e
+                if attempt == 0:
+                    time.sleep(2)
+        raise RuntimeError(f"Maerkte nicht verfuegbar, Positionsstatus unbekannt: {last_err}")
+
+    def fetch_open_trigger_orders(self, symbol: str) -> list:
+        """Alle offenen Trigger-Orders (Plan + Positions-TP/SL) fuer ein Symbol.
+        Wirft bei API-Fehlern weiter: 'unbekannt' darf nie als 'keine Orders' gelten,
+        sonst wuerden doppelte SL/TP platziert."""
+        self._ensure_markets()
+        orders = []
+        for plan_type in ['normal_plan', 'profit_loss']:
+            orders.extend(self.exchange.fetch_open_orders(
+                symbol, params={'trigger': True, 'planType': plan_type,
+                                'productType': 'USDT-FUTURES'}
+            ))
+        return orders
 
     # --- Margin / Leverage ---
 

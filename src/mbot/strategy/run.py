@@ -34,6 +34,7 @@ from mbot.utils.trade_manager import (
     is_candle_cooldown_active,
     execute_signal_trade,
     check_position_status,
+    ensure_position_protected,
     housekeeper_routine,
     read_position,
     clear_position,
@@ -120,7 +121,8 @@ def run_for_account(account: dict, telegram_config: dict,
     if mode == 'check':
         # State-basierter Exit deaktiviert — Exit nur via hartem SL/TP (wie Backtester)
         # --- Positions-Check: Ist der Trade noch offen? ---
-        check_position_status(exchange, symbol, timeframe, telegram_config, logger)
+        check_position_status(exchange, symbol, timeframe, telegram_config, logger,
+                              signal_config=signal_config)
 
     elif mode == 'signal':
         # --- Signal-Check: Nur wenn diese Strategie noch keinen offenen Trade hat ---
@@ -128,6 +130,15 @@ def run_for_account(account: dict, telegram_config: dict,
             logger.info(
                 f"Strategie {symbol} ({timeframe}) hat bereits einen offenen Trade - ueberspringe."
             )
+            return
+
+        # Selbstheilung VOR Cooldown/Signal: offene, aber nicht (mehr) getrackte
+        # Exchange-Position (z.B. State geloescht, SL/TP storniert) wieder absichern
+        # und tracken - sonst bliebe sie ungeschuetzt, weil der Check-Modus nur
+        # getrackte Positionen sieht.
+        if ensure_position_protected(exchange, symbol, timeframe, signal_config,
+                                     telegram_config, logger):
+            logger.info(f"Exchange zeigt offene Position fuer {symbol} - kein neues Signal.")
             return
 
         # Candle-Cooldown: kein Re-Entry auf derselben Kerze (wie Backtester)
