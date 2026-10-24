@@ -101,6 +101,18 @@ def run_strategy(python_exe: str, symbol: str, timeframe: str, mode: str, wait: 
         logging.error(f"Fehler beim Starten von run.py fuer {symbol}: {e}")
 
 
+def _record_team(active_strategies: list):
+    """Teamhistorie: welches Portfolio ab wann live lief (fuer Live-vs-Backtest-Abgleich)."""
+    try:
+        sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
+        from mbot.utils.team_history import record_team, strategy_key
+        keys = [strategy_key(s['symbol'], s['timeframe']) for s in active_strategies]
+        if record_team(keys, source='master_runner'):
+            logging.info(f"Teamhistorie: neues Team aufgezeichnet ({len(keys)} Strategien).")
+    except Exception as e:
+        logging.warning(f"Teamhistorie nicht geschrieben: {e}")
+
+
 def main():
     logging.info("=" * 55)
     logging.info("mbot Master Runner (Multi-Position)")
@@ -124,6 +136,13 @@ def main():
                 stdout=log_f,
                 stderr=subprocess.STDOUT,
             )
+
+    # --- Taeglicher Live-vs-Backtest-Abgleich im Hintergrund (prueft selbst, ob faellig) ---
+    daily_check = os.path.join(PROJECT_ROOT, 'daily_live_vs_backtest_check.py')
+    if os.path.exists(daily_check):
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'daily_live_vs_backtest_check.log'), 'a') as log_f:
+            subprocess.Popen([python_exe, daily_check], stdout=log_f, stderr=subprocess.STDOUT)
 
     # --- Settings laden ---
     try:
@@ -158,6 +177,7 @@ def main():
         return
 
     logging.info(f"Aktive Strategien: {len(active_strategies)} | Max. Positionen: {max_open_positions}")
+    _record_team(active_strategies)
 
     active_strategy_keys = {(s['symbol'], s['timeframe']) for s in active_strategies}
 

@@ -9,3 +9,6 @@ logs/
 artifacts/tracker/global_state.json
 artifacts/tracker/global_state.json.bak
 .DS_Store
+
+# Teamhistorie, Tagesbericht
+artifacts/db/
