@@ -230,8 +230,11 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
 
     all_ohlcv = []
     current   = start_ts
+    # Nicht ueber "jetzt" hinaus anfragen: ccxt >= 4.5 setzt endTime = since + limit*tf,
+    # Bitget lehnt ein startTime ab der laufenden Kerze mit 40017 ab (vorher: leere Antwort).
+    end_ts = min(end_ts, int(exchange_instance.exchange.milliseconds()))
 
-    while current < end_ts:
+    while current + tf_ms <= end_ts:
         try:
             chunk = exchange_instance.exchange.fetch_ohlcv(symbol, timeframe, current, 200)
             if not chunk:
