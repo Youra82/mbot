@@ -1,4 +1,4 @@
-ccxt==4.3.5
+ccxt==4.5.35
 numpy
 pandas==2.1.3
 ta==0.11.0
