@@ -34,21 +34,34 @@ class Exchange:
         timeframe_ms = self.exchange.parse_timeframe(timeframe) * 1000
         since = self.exchange.milliseconds() - timeframe_ms * limit
         all_ohlcv = []
+        last_ts = None
+        net_retries = 0
 
+        # Ueberlappend paginieren (naechste Seite ab der letzten erhaltenen Kerze): mit
+        # "letzte + tf" fehlte an der Seitengrenze eine Kerze (26.10.2026: 1d-Fenster ohne
+        # 09.07.2026, 199 statt 200 Kerzen) -- Indikatoren liefen live auf einem Fenster mit Loch.
         while since < self.exchange.milliseconds():
             try:
                 ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since, 200)
-                if not ohlcv:
-                    break
-                all_ohlcv.extend(ohlcv)
-                since = ohlcv[-1][0] + timeframe_ms
-                time.sleep(self.exchange.rateLimit / 1000)
-            except ccxt.RateLimitExceeded:
-                logger.warning("Rate limit - warte 5s...")
-                time.sleep(5)
+            except ccxt.NetworkError as e:   # inkl. 429 / RateLimitExceeded
+                net_retries += 1
+                if net_retries > 5:
+                    logger.error(f"OHLCV {symbol} ({timeframe}): {e} -- gebe auf.")
+                    return pd.DataFrame()
+                logger.warning(f"OHLCV {symbol} ({timeframe}): {type(e).__name__} -- Retry {net_retries}/5")
+                time.sleep(2 * net_retries)
+                continue
             except Exception as e:
-                logger.error(f"Fehler beim OHLCV-Abruf: {e}")
+                logger.error(f"Fehler beim OHLCV-Abruf {symbol} ({timeframe}): {e}")
+                return pd.DataFrame()
+            net_retries = 0
+            ohlcv = [c for c in ohlcv if last_ts is None or c[0] > last_ts]
+            if not ohlcv:
                 break
+            all_ohlcv.extend(ohlcv)
+            last_ts = ohlcv[-1][0]
+            since = last_ts
+            time.sleep(self.exchange.rateLimit / 1000)
 
         if not all_ohlcv:
             return pd.DataFrame()

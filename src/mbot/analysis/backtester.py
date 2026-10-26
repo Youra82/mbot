@@ -22,6 +22,7 @@ import sys
 import json
 import logging
 import time
+import ccxt
 import pandas as pd
 import numpy as np
 
@@ -230,27 +231,45 @@ def load_data(exchange_instance, symbol: str, timeframe: str,
 
     all_ohlcv = []
     current   = start_ts
+    last_ts   = None
+    net_retries = 0
     # Nicht ueber "jetzt" hinaus anfragen: ccxt >= 4.5 setzt endTime = since + limit*tf,
     # Bitget lehnt ein startTime ab der laufenden Kerze mit 40017 ab (vorher: leere Antwort).
     end_ts = min(end_ts, int(exchange_instance.exchange.milliseconds()))
 
+    # Ueberlappend paginieren (naechste Seite ab der letzten erhaltenen Kerze): mit
+    # "letzte + tf" verliert Bitget an Seitengrenzen einzelne Kerzen (fibot 77b146d).
+    # Fehler brechen nicht mehr still ab: vorher rechnete der Backtest bei 429 oder
+    # leerer Seite mit abgeschnittener Historie weiter (26.10.2026: BTC/1d, ARB/1d).
     while current + tf_ms <= end_ts:
         try:
             chunk = exchange_instance.exchange.fetch_ohlcv(symbol, timeframe, current, 200)
-            if not chunk:
-                break
-            chunk = [c for c in chunk if c[0] <= end_ts]
-            if not chunk:
-                break
-            all_ohlcv.extend(chunk)
-            current = chunk[-1][0] + tf_ms
-            time.sleep(exchange_instance.exchange.rateLimit / 1000)
+        except ccxt.NetworkError as e:   # inkl. 429 / RateLimitExceeded
+            net_retries += 1
+            if net_retries > 6:
+                logger.error(f"Daten {symbol} ({timeframe}): {e} -- gebe auf, keine Daten statt abgeschnittener Historie.")
+                return pd.DataFrame()
+            logger.warning(f"Daten {symbol} ({timeframe}): {type(e).__name__} -- Retry {net_retries}/6")
+            time.sleep(2 * net_retries)
+            continue
         except Exception as e:
-            logger.error(f"Fehler beim Laden der Daten: {e}")
+            logger.error(f"Fehler beim Laden der Daten {symbol} ({timeframe}): {e} -- keine Daten statt abgeschnittener Historie.")
+            return pd.DataFrame()
+        net_retries = 0
+        chunk = [c for c in chunk if c[0] <= end_ts and (last_ts is None or c[0] > last_ts)]
+        if not chunk:
             break
+        all_ohlcv.extend(chunk)
+        last_ts = chunk[-1][0]
+        current = last_ts
+        time.sleep(exchange_instance.exchange.rateLimit / 1000)
 
     if not all_ohlcv:
         return pd.DataFrame()
+    # Endet die Historie deutlich vor dem angefragten Ende, laut melden (Aufrufer pruefen die Laenge)
+    if last_ts is not None and end_ts - last_ts > 3 * tf_ms:
+        logger.error(f"UNVOLLSTAENDIGE HISTORIE {symbol} ({timeframe}): endet "
+                     f"{pd.to_datetime(last_ts, unit='ms', utc=True)} statt {pd.to_datetime(end_ts, unit='ms', utc=True)}")
 
     df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
