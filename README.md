@@ -106,7 +106,7 @@ Genau dieses Muster zeigt auch die Einzelansicht:
 
 ## 🧭 Marktphasen: wann der Bot verdient
 
-Backtest des aktuellen Teams aus `settings.json` (6 Strategien, gemeinsames Kapital wie live), 352 Trades vom 03.01.2024 bis 26.10.2026. Jeder Tag ist der BTC-Marktphase am Vortag zugeordnet,
+Backtest des aktuellen Teams aus `settings.json` (8 Strategien, gemeinsames Kapital wie live), 762 Trades vom 01.01.2024 bis 26.10.2026. Jeder Tag ist der BTC-Marktphase am Vortag zugeordnet,
 gemessen an der BTC-Bewegung der letzten 30 Tage.
 
 ![BTC-Tageskerzen mit Marktphasen und Bot-Ergebnis](docs/img/marktphasen_btc.png)
@@ -115,29 +115,29 @@ gemessen an der BTC-Bewegung der letzten 30 Tage.
 
 - **Kerzen:** BTC-Tageskerzen, ein Jahr pro Zeile. Blau = Tag im Plus, rot = Tag im Minus. Gestrichelt: SMA200.
 - **Hintergrund:** BTC-Marktphase, eingefärbt nach dem Ergebnis dieses Bots.
-  - **Hellblau = günstig:** BTC in 30 Tagen unter −10 % oder über +10 %. Im Schnitt **+40,1 % pro 30 Tage**.
-  - **Beige = ungünstig:** alle übrigen Phasen. Im Schnitt **+7,1 % pro 30 Tage**.
+  - **Hellblau = günstig:** BTC in 30 Tagen unter −10 % oder über +10 %. Im Schnitt **+46,2 % pro 30 Tage**.
+  - **Beige = ungünstig:** alle übrigen Phasen. Im Schnitt **+23,6 % pro 30 Tage**.
 - **Farbstreifen unter jedem Jahr:** Rendite des Bots über die letzten 30 Tage (mit Zinseszins). Kräftiges Blau = gut verdient, Rot = Verlust.
 
 **Ergebnis nach BTC-Bewegung der letzten 30 Tage:**
 
 | BTC in 30 Tagen | Rendite pro 30 Tage | Trades | Ø Trade (vom Konto) | Trefferquote |
 |---|---|---|---|---|
-| unter −10 % (Crash oder starke Korrektur) | +26,8 % | 71 | +0,31 % | 15 % |
-| −10 bis −3 % | +0,4 % | 63 | +2,94 % | 27 % |
-| ±3 % (seitwärts) | +8,4 % | 67 | +2,92 % | 28 % |
-| +3 bis +10 % | +11,3 % | 66 | +1,89 % | 24 % |
-| über +10 % (Rally) | +49,1 % | 85 | +2,91 % | 28 % |
+| unter −10 % (Crash oder starke Korrektur) | +34,0 % | 120 | +0,92 % | 26 % |
+| −10 bis −3 % | +15,1 % | 118 | +1,03 % | 25 % |
+| ±3 % (seitwärts) | +24,0 % | 175 | +1,77 % | 32 % |
+| +3 bis +10 % | +30,3 % | 159 | +1,88 % | 36 % |
+| über +10 % (Rally) | +54,4 % | 190 | +1,78 % | 33 % |
 
 **Was man sieht:**
 
-- Der Bot braucht **große Bewegungen**, ob nach oben oder nach unten. Starke Rallys (über +10 % in 30 Tagen) bringen etwa +49 % pro 30 Tage, Crashs (unter −10 %) etwa +27 %.
-- Bei leicht fallendem BTC (−10 bis −3 %) kommt praktisch nichts heraus.
-- Die Trefferquote ist niedrig (15–28 %). Das Ergebnis entsteht aus wenigen großen Gewinnern.
-- Die besten Zeiträume: Mai–Juni 2025, September–November 2025 und Februar 2026, als BTC von 87k auf 68k fiel (+195 % in 30 Tagen).
-- Die schwächsten Zeiträume: August–September 2024 (−28 %) und März 2025.
-- Hinweis: Für SOL/1h liefert Bitget ab dem 10.08.2026 keine Kerzen im Backtest; diese Strategie fehlt dort.
-- Aktuell (26.10.2026) liegt BTC in der Phase **−10 bis −3 %**. Für diesen Bot ist das eine ungünstige Phase. Im Backtest lagen die letzten 30 Tage bei −9,6 %.
+- Team: Wochenauswahl vom 26.10.2026 (XRP/6h, ARB/4h, LTC/2h, SOL/1h, AVAX/6h, AAVE/1d, BNB/1d, ETH/1d).
+- Der Bot verdient im Backtest in allen Phasen, am meisten aber bei **großen Bewegungen**, ob nach oben oder nach unten. Starke Rallys (über +10 % in 30 Tagen) bringen etwa +54 % pro 30 Tage, Crashs (unter −10 %) etwa +34 %.
+- Am schwächsten ist er bei leicht fallendem BTC (−10 bis −3 %): etwa +15 % pro 30 Tage.
+- Die Trefferquote ist niedrig (25–36 %). Das Ergebnis entsteht aus wenigen großen Gewinnern.
+- Die besten Zeiträume: Mai–Juni 2025, September–Oktober 2025 (+164 % in 30 Tagen), Februar 2026 (+172 %) und August–September 2026.
+- Die schwächsten Zeiträume, mit −16 bis −23 %: Januar–Februar 2024, März 2025, April–Mai 2026 und Ende Juli bis August 2026.
+- Aktuell (26.10.2026) liegt BTC in der Phase **−10 bis −3 %**. Für diesen Bot ist das eine ungünstige Phase. Im Backtest lagen die letzten 30 Tage bei +14,6 %.
 
 **Einschränkung:** Das ist ein Backtest. Die Configs wurden auf Teilen dieses Zeitraums optimiert, deshalb sind die
 absoluten Zahlen zu optimistisch. Aussagekräftig ist vor allem der Vergleich der Phasen untereinander. Die Phasen
