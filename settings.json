@@ -9,18 +9,18 @@
                 "active": true
             },
             {
-                "symbol": "ARB/USDT:USDT",
-                "timeframe": "4h",
-                "active": true
-            },
-            {
                 "symbol": "LTC/USDT:USDT",
                 "timeframe": "2h",
                 "active": true
             },
             {
-                "symbol": "SOL/USDT:USDT",
-                "timeframe": "1h",
+                "symbol": "ARB/USDT:USDT",
+                "timeframe": "4h",
+                "active": true
+            },
+            {
+                "symbol": "BTC/USDT:USDT",
+                "timeframe": "1d",
                 "active": true
             },
             {
@@ -30,6 +30,11 @@
             },
             {
                 "symbol": "AAVE/USDT:USDT",
+                "timeframe": "1d",
+                "active": true
+            },
+            {
+                "symbol": "ADA/USDT:USDT",
                 "timeframe": "1d",
                 "active": true
             },
